@@ -1,0 +1,54 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+        "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+        "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+  BUILD-2, test-source half.
+
+  Exists because checkstyle-harness.xml runs with includeTestSourceDirectory=false, so a rule listing
+  @Disabled there would never match anything. A gate that reads as covered and never fires is worse
+  than an absent gate, because nobody goes looking for it.
+
+  Deliberately contains nothing else. Applying the convention checks to test sources would flag
+  Javadoc and naming across the whole test tree, and that noise is how a build gets set to
+  failOnViolation=false — which would disable BUILD-2 along with everything else.
+-->
+<module name="Checker">
+    <property name="severity" value="error"/>
+    <property name="fileExtensions" value="java"/>
+
+    <module name="TreeWalker">
+
+        <!-- A skipped test is an unproven acceptance criterion. -->
+        <module name="RegexpSinglelineJava">
+            <property name="id" value="BUILD-2-disabledTest"/>
+            <property name="format" value="@Disabled|@Ignore|@Test\s*\(\s*enabled\s*=\s*false"/>
+            <property name="message"
+                      value="BUILD-2: a disabled test is an automatic FAIL. If an AC cannot be tested, say so in Known gaps and let the gate fail — escalation exists for this."/>
+            <property name="ignoreComments" value="false"/>
+        </module>
+
+        <!-- Suppressions in test code hide the same gates as suppressions in main code. -->
+        <module name="RegexpSinglelineJava">
+            <property name="id" value="BUILD-2-testSuppression"/>
+            <property name="format" value="@SuppressWarnings|CHECKSTYLE:OFF"/>
+            <property name="message" value="BUILD-2: suppressing a check is an automatic FAIL."/>
+            <property name="ignoreComments" value="false"/>
+        </module>
+
+        <!--
+          ArchitectureRulesTest is the one file that must never be weakened, and the likeliest place
+          a blocked Generator will reach. Any edit to it shows in the diff; this catches the specific
+          move of commenting a rule out.
+        -->
+        <module name="RegexpSinglelineJava">
+            <property name="id" value="BUILD-2-commentedArchRule"/>
+            <property name="format" value="^\s*//\s*@ArchTest"/>
+            <property name="message"
+                      value="BUILD-2: an ArchUnit rule has been commented out. This is the gate that protects the gates."/>
+            <property name="ignoreComments" value="false"/>
+        </module>
+
+    </module>
+</module>

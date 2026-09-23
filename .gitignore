@@ -1,0 +1,23 @@
+# Harness working files — archived to .harness/reviews/ on each terminal verdict
+.harness/output/*
+!.harness/output/.gitkeep
+
+# Maven
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local env — never commit; see DEPLOYMENT.md
+.env
+*.local.properties

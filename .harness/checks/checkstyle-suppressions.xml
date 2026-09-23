@@ -1,0 +1,48 @@
+<?xml version="1.0"?>
+<!DOCTYPE suppressions PUBLIC
+        "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+        "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<!--
+  ERR-1 is scoped to services and routes. The Checkstyle regex module has no path predicate of its
+  own, so the scoping is done here — without this file the comment in checkstyle-harness.xml claims
+  a scope the check does not actually have, and the gate is silently broader than the rule it proves.
+
+  Kept narrow deliberately. This file suppresses a check where the rule does not reach; it is not a
+  place to quiet a gate that is inconveniently correct. Adding an entry here is a change to what
+  ERR-1 means, so it goes past the engineering standards team, not into a feature commit.
+
+  NOTE ON `id` VERSUS `checks`. The ERR-1 and BUILD-2 rules are RegexpSinglelineJava / IllegalCatch /
+  IllegalThrows modules distinguished only by their `id` property. Checkstyle matches the `checks`
+  attribute against the violation's *source name* — the check class, e.g.
+  RegexpSinglelineJavaCheck — and matches `id` against the module id. Scoping by `checks="ERR-1-..."`
+  therefore matches nothing and silently leaves ERR-1 unscoped, which fires the gate on domain and
+  repository classes and on shared.error itself. Every entry below scopes by `id`.
+-->
+<suppressions>
+
+    <!--
+      ERR-1 covers services and routes. A repository or a domain type throwing IllegalStateException
+      is outside the rule as written in architecture-principles, and flagging it would make the gate
+      broader than the rule the Evaluator quotes when it fails.
+    -->
+    <suppress id="ERR-1-rawThrow"
+              files="[\\/](domain|repository)[\\/]"/>
+
+    <!--
+      shared.error defines the AppException hierarchy itself. AppException extends RuntimeException by
+      design, and GlobalExceptionHandler maps unhandled throwables to a 500 — both legitimate, both
+      inside the only package permitted to reference raw exception types.
+    -->
+    <suppress id="ERR-1-rawThrow" files="[\\/]shared[\\/]error[\\/]"/>
+    <suppress id="ERR-1-illegalThrows" files="[\\/]shared[\\/]error[\\/]"/>
+    <suppress id="ERR-1-broadCatch" files="[\\/]shared[\\/]error[\\/]"/>
+
+    <!--
+      Generated sources, if the build ever produces any. Scoped by `checks` rather than `id` on
+      purpose: this one suppresses every check, not a named gate. No suppression for src/main
+      hand-written code beyond the entries above.
+    -->
+    <suppress checks=".*" files="[\\/]target[\\/]"/>
+
+</suppressions>

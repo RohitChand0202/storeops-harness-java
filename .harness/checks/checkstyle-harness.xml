@@ -1,0 +1,137 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+        "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+        "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+  Checkstyle configuration for the StoreOps harness gates.
+
+  Two kinds of rule live here and they are not equivalent:
+
+    * The ERR-1 block is a HARD GATE. A violation fails the build and produces a FAIL verdict
+      regardless of every other score. It is the primary proof for ERR-1; the ArchUnit rule
+      servicesThrowOnlyAppExceptions is the backstop for signatures the line regex misses.
+
+    * Everything else is convention enforcement. It contributes to the Build Integrity dimension
+      and nothing more.
+
+  severity=error throughout, because a Checkstyle warning is a Checkstyle rule nobody obeys.
+-->
+<module name="Checker">
+    <property name="severity" value="error"/>
+    <property name="fileExtensions" value="java"/>
+
+    <!-- Scopes ERR-1 to services and routes. See checkstyle-suppressions.xml for why. -->
+    <module name="SuppressionFilter">
+        <property name="file" value=".harness/checks/checkstyle-suppressions.xml"/>
+        <property name="optional" value="false"/>
+    </module>
+
+    <module name="LineLength">
+        <property name="max" value="120"/>
+        <property name="ignorePattern" value="^\s*\*.*https?://"/>
+    </module>
+
+    <module name="TreeWalker">
+
+        <!-- ================= ERR-1 — HARD GATE ================= -->
+        <!--
+          No raw exception construction in a service or web class. Catches client failure mode 2.
+          Scoped to service and web paths by checkstyle-suppressions.xml — the regex module has no
+          path predicate of its own, so without that file this check is silently broader than the
+          ERR-1 rule the Evaluator quotes when it fails.
+        -->
+        <module name="RegexpSinglelineJava">
+            <property name="id" value="ERR-1-rawThrow"/>
+            <property name="format"
+                      value="throw\s+new\s+(RuntimeException|IllegalStateException|IllegalArgumentException|UnsupportedOperationException|Exception)\s*\("/>
+            <property name="message"
+                      value="ERR-1: raw exception throw. Use an AppException subclass — ValidationException(400), UnauthorizedException(401), ForbiddenException(403), NotFoundException(404), ConflictException(409), RuleViolationException(422). See architecture-principles."/>
+            <property name="ignoreComments" value="true"/>
+        </module>
+
+        <!--
+          A catch block that absorbs a failure and returns a default is an ERR-1 violation the throw
+          regex cannot see. Flagged here; the Evaluator reads the catch body (how-to-review step 4).
+        -->
+        <module name="IllegalCatch">
+            <property name="id" value="ERR-1-broadCatch"/>
+            <property name="illegalClassNames"
+                      value="java.lang.Exception, java.lang.Throwable, java.lang.RuntimeException"/>
+        </module>
+
+        <module name="IllegalThrows">
+            <property name="id" value="ERR-1-illegalThrows"/>
+            <property name="illegalClassNames"
+                      value="java.lang.Throwable, java.lang.Error, java.lang.RuntimeException"/>
+        </module>
+
+        <!-- ================= BUILD-2 — HARD GATE (main sources) ================= -->
+        <!--
+          Suppression of a check is never a legitimate way to pass a gate.
+
+          @Disabled is deliberately NOT listed here. This configuration runs with
+          includeTestSourceDirectory=false, so a test annotation could never match and listing it
+          would give a gate that reads as covered and never fires. The test-source half of BUILD-2 is
+          checkstyle-build2-tests.xml, run as a second Checkstyle execution. The pom.xml threshold
+          half cannot be a Checkstyle rule at all and stays an Evaluator diff scan.
+        -->
+        <module name="RegexpSinglelineJava">
+            <property name="id" value="BUILD-2-suppression"/>
+            <property name="format" value="@SuppressWarnings|CHECKSTYLE:OFF|CHECKSTYLE.OFF"/>
+            <property name="message"
+                      value="BUILD-2: suppressing a check is an automatic FAIL. If a gate is wrong, raise it — do not silence it."/>
+            <property name="ignoreComments" value="false"/>
+        </module>
+
+        <!-- ================= conventions ================= -->
+        <module name="UnusedImports"/>
+        <module name="AvoidStarImport"/>
+        <module name="RedundantImport"/>
+        <module name="CustomImportOrder">
+            <property name="customImportOrderRules"
+                      value="STANDARD_JAVA_PACKAGE###THIRD_PARTY_PACKAGE###SPECIAL_IMPORTS"/>
+            <property name="specialImportsRegExp" value="^com\.cognizant\."/>
+            <property name="sortImportsInGroupAlphabetically" value="true"/>
+            <property name="separateLineBetweenGroups" value="true"/>
+        </module>
+
+        <module name="OneTopLevelClass"/>
+        <module name="TypeName"/>
+        <module name="MethodName"/>
+        <module name="MemberName"/>
+        <module name="ConstantName"/>
+        <module name="PackageName"/>
+
+        <module name="NeedBraces"/>
+        <module name="LeftCurly"/>
+        <module name="RightCurly"/>
+        <module name="EmptyBlock">
+            <property name="option" value="text"/>
+        </module>
+
+        <module name="AvoidNestedBlocks"/>
+        <module name="MissingSwitchDefault"/>
+        <module name="FallThrough"/>
+        <module name="EqualsHashCode"/>
+        <module name="SimplifyBooleanExpression"/>
+        <module name="SimplifyBooleanReturn"/>
+        <module name="StringLiteralEquality"/>
+        <module name="HiddenField">
+            <property name="ignoreConstructorParameter" value="true"/>
+            <property name="ignoreSetter" value="true"/>
+        </module>
+
+        <module name="RegexpSinglelineJava">
+            <property name="id" value="noSystemOut"/>
+            <property name="format" value="System\.(out|err)\.print"/>
+            <property name="message" value="Use SLF4J. Never log a payload, token, or email at INFO — store staff PII."/>
+        </module>
+
+        <module name="JavadocMethod">
+            <property name="accessModifiers" value="public"/>
+            <property name="allowMissingParamTags" value="true"/>
+            <property name="allowMissingReturnTag" value="true"/>
+        </module>
+    </module>
+</module>
