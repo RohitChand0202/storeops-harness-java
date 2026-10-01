@@ -199,9 +199,14 @@ Full usage is in `api-integration`.
 - 4-space indent, no tabs. 120-character lines.
 - One top-level type per file.
 - Import order: `java`, `javax`, third-party, `com.cognizant`. No wildcard imports, no unused imports.
-- Javadoc on public service interface methods only. Not on impls, not on controllers, not on records.
-  A Javadoc block that restates the method name is noise; Checkstyle will not catch it but a reviewer
-  will.
+- **Javadoc on every public method and every public constructor, except where `@Override` is
+  present.** Checkstyle's `JavadocMethod` runs with `accessModifiers=public` and its default
+  `allowedAnnotations=Override`, so an impl method carrying `@Override` is exempt and a controller
+  handler, an interface method, a static factory on a DTO and a public constructor are not. This is
+  gate `BUILD-1`, not a preference: a controller written without Javadoc fails the build.
+  `@param` and `@return` tags are optional (`allowMissingParamTags` and `allowMissingReturnTag` are
+  both on), so a one-line summary is enough. A Javadoc block that restates the method name is noise;
+  Checkstyle will not catch that but a reviewer will.
 - No `System.out`. `SLF4J` logger, `private static final Logger log = LoggerFactory.getLogger(X.class)`.
 - Never log a `payload`, token, or email at `INFO`. Store staff PII sits in these objects.
 - No field shadowing, no `!isEmpty()` where `isEmpty()` would read better, no nested ternaries.

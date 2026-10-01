@@ -39,4 +39,43 @@
         </Or>
     </Match>
 
+    <!--
+      Constructor injection is not an exposure of internal representation.
+
+      EI_EXPOSE_REP2 fires when a constructor stores a reference to an externally mutable object,
+      and the pattern exists to catch a value crossing an API boundary without a defensive copy -
+      a Date, an array, a collection. A Spring component storing an injected collaborator in a
+      final field is the opposite case: sharing that one instance is the entire point, and copying
+      it would be meaningless.
+
+      Without this entry the harness contradicts itself at every single injection point.
+      coding-conventions requires "constructor injection only, no @Autowired on fields" and "final
+      fields"; follow that and BUILD-1 fails; BUILD-2 then forbids the Generator from suppressing
+      the finding. There is no legal move, and it is not a corner case - it is every service and
+      every controller in the codebase.
+
+      Measured on the generated StoreOps scaffold: four EI_EXPOSE_REP2 findings against
+      ActivityServiceImpl.taskRepository, ActivityController.activityService,
+      ProgrammeServiceImpl.projectRepository and ProgrammeController.programmeService, with
+      Checkstyle clean, 95 tests green and all nine ArchUnit rules passing.
+
+      Worth knowing: it flagged four of roughly twenty otherwise identical injection points.
+      SpotBugs judges mutability from the implementations it can see, so a repository interface
+      backed by a map is "mutable" and an interface whose impl holds no field is not. That
+      inconsistency is the strongest argument for excluding the pattern here rather than asking
+      developers to predict it - a gate nobody can predict is a gate that gets worked around.
+
+      Scoped to constructors, and only in the layers where injection happens. Ordinary methods and
+      getters keep the check, so a service that returns its own mutable collection is still caught.
+    -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+        <Method name="&lt;init&gt;"/>
+        <Or>
+            <Class name="~com\.cognizant\.storeops\..*\.service\..*"/>
+            <Class name="~com\.cognizant\.storeops\..*\.web\..*"/>
+            <Class name="~com\.cognizant\.storeops\.shared\.event\..*"/>
+        </Or>
+    </Match>
+
 </FindBugsFilter>

@@ -178,3 +178,46 @@ it runs in about ninety seconds.
 I have left the two manual verification notes out of `.harness/checks/README.md` now. They were a
 substitute for a test, and the substitute would have been performed once, by me, and then believed
 for the rest of the harness's life.
+
+## Entry 7 — Generating the codebase found two more gate defects
+
+I had the gates green against a six-file fixture and thought that was most of the risk retired. It
+was not. Generating the actual StoreOps scaffold — five modules, three layers, 76 main files —
+produced two failures the fixture was too small to reach.
+
+**SpotBugs rejects constructor injection.** `EI_EXPOSE_REP2`, four findings, all of the shape
+"ActivityServiceImpl may expose internal representation by storing an externally mutable object into
+ActivityServiceImpl.taskRepository". That is constructor injection into a final field, which
+`coding-conventions` *requires* — "constructor injection only, no `@Autowired` on fields", "final
+fields". So the convention file and the build gate contradicted each other at every service and
+every controller in the codebase, `BUILD-2` forbade suppressing the finding, and the Generator would
+have had no legal move on its very first sprint.
+
+The detail that decided the fix: it flagged four of roughly twenty otherwise identical injection
+points. SpotBugs infers mutability from implementations it can see, so a repository interface backed
+by a `ConcurrentHashMap` is "mutable" and one whose impl holds no field is not. A gate that fires on
+a quarter of structurally identical code, by a rule nobody can predict, does not teach anyone
+anything — it just gets worked around. Excluded for constructors in the service, web and event
+packages, where injection happens, and left active everywhere else.
+
+**The coverage numbers only existed on failure.** `jacoco:check` prints a ratio when it fails and
+says nothing when it passes, and the profile never bound `jacoco:report`. But `run-log.TEMPLATE.md`
+requires `COVERAGE_SERVICE` and `COVERAGE_OVERALL` every sprint, and `monitor.agent.md` names
+"coverage drifting down while verdicts stay PASS" as a legitimate trend to report. Those two things
+cannot both be true: on a passing sprint the Monitor had no number to write, so the one trend the
+archive exists to surface was invisible on exactly the sprints that look fine. Added a `report`
+execution before the check, which writes `jacoco.csv` for the Monitor to read.
+
+**And one skill file was simply wrong.** `coding-conventions` said "Javadoc on public service
+interface methods only. Not on impls, not on controllers, not on records." Checkstyle's
+`JavadocMethod` runs with `accessModifiers=public` and exempts only `@Override`, so controllers,
+static factories and public constructors all need it. Follow the skill file, fail the build. I only
+found it because I wrote 76 files against my own conventions and the build told me.
+
+**The pattern across entries 5, 6 and 7 is the thing worth keeping.** Seven defects in the gates so
+far. Reading the configuration found three. Running it against a six-file fixture found three more.
+Generating a realistic codebase found two more still, plus a wrong skill file. Every one of them
+would have cost a Generator iteration or produced a false green, and the number found per hour went
+*up* with each step toward realism. The lesson is not "test the gates", which I had already written
+down. It is that a gate is only tested by code of the shape and scale it will actually govern, and a
+fixture is a floor rather than a ceiling.

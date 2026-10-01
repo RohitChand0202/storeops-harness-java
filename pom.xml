@@ -1,0 +1,333 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>3.3.4</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>com.cognizant</groupId>
+  <artifactId>storeops</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>StoreOps</name>
+  <description>Retail store operations REST API - capstone reference codebase</description>
+
+  <properties>
+    <java.version>17</java.version>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-validation</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-actuator</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+<profile>
+    <id>harness-gates</id>
+
+    <properties>
+        <archunit.version>1.3.0</archunit.version>
+        <checkstyle.plugin.version>3.5.0</checkstyle.plugin.version>
+        <spotbugs.plugin.version>4.8.6.4</spotbugs.plugin.version>
+        <jacoco.version>0.8.12</jacoco.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+
+            <!--
+              ERR-1 (primary) and BUILD-2. Fails the build on violation, not on warning.
+
+              Two executions, because the two halves of BUILD-2 live in different source trees.
+              A single execution cannot do both: includeTestSourceDirectory=false is required to keep
+              the convention checks off the test tree, and that same setting makes a test-source
+              @Disabled rule unmatchable.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-checkstyle-plugin</artifactId>
+                <version>${checkstyle.plugin.version}</version>
+                <configuration>
+                    <consoleOutput>true</consoleOutput>
+                    <failOnViolation>true</failOnViolation>
+                    <violationSeverity>error</violationSeverity>
+                </configuration>
+                <executions>
+
+                    <!-- main sources: ERR-1, BUILD-2 suppressions, conventions -->
+                    <execution>
+                        <id>harness-checkstyle-main</id>
+                        <phase>validate</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <configLocation>.harness/checks/checkstyle-harness.xml</configLocation>
+                            <suppressionsLocation>
+                                .harness/checks/checkstyle-suppressions.xml
+                            </suppressionsLocation>
+                            <includeTestSourceDirectory>false</includeTestSourceDirectory>
+                        </configuration>
+                    </execution>
+
+                    <!-- test sources: BUILD-2 only. Nothing else, deliberately — see the config. -->
+                    <execution>
+                        <id>harness-checkstyle-build2-tests</id>
+                        <phase>validate</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <configLocation>
+                                .harness/checks/checkstyle-build2-tests.xml
+                            </configLocation>
+                            <sourceDirectories>
+                                <sourceDirectory>${project.build.testSourceDirectory}</sourceDirectory>
+                            </sourceDirectories>
+                        </configuration>
+                    </execution>
+
+                </executions>
+            </plugin>
+
+            <!--
+              BUILD-1. HIGH and MEDIUM findings only; LOW is noise on a stub codebase.
+
+              The exclude filter carries exactly one entry, and it resolves a conflict between two
+              gates rather than quieting a finding: at threshold=Medium, SpotBugs reports
+              CT_CONSTRUCTOR_THROW on a domain entity that validates its arguments — which is the
+              code ERR-1's own suppressions deliberately permit. Without the filter the Generator
+              has no legal move, because BUILD-2 forbids it from suppressing the finding. See
+              spotbugs-excludes.xml for the full reasoning.
+            -->
+            <plugin>
+                <groupId>com.github.spotbugs</groupId>
+                <artifactId>spotbugs-maven-plugin</artifactId>
+                <version>${spotbugs.plugin.version}</version>
+                <configuration>
+                    <effort>Max</effort>
+                    <threshold>Medium</threshold>
+                    <failOnError>true</failOnError>
+                    <excludeFilterFile>.harness/checks/spotbugs-excludes.xml</excludeFilterFile>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>harness-spotbugs</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+              TEST-1. Per-package thresholds matching Section 3.6: service 80%, web 70%,
+              shared 60%, overall 70%.
+
+              Note the ordering: the bundle rule runs first so an overall failure is reported
+              before a package failure. On a small codebase a single uncovered service class can
+              trip both, and the overall number is the one that tells a developer whether the
+              problem is local or systemic.
+
+              The dotted include patterns are confirmed to bind. A PACKAGE rule that matches no
+              package passes silently, so this was worth measuring rather than assuming — on a
+              fixture with one partly-tested service class and an untested shared/error package,
+              jacoco:check reports:
+
+                  Rule violated for bundle ...: lines covered ratio is 0.29, minimum is 0.70
+                  Rule violated for package com.cognizant.storeops.activities.service:
+                      lines covered ratio is 0.22, but expected minimum is 0.80
+                  Rule violated for package com.cognizant.storeops.shared.error:
+                      lines covered ratio is 0.00, but expected minimum is 0.60
+
+              Note the package names in that output are dotted, which is what these patterns match.
+              Re-measure with .harness/checks/fixtures/ if the JaCoCo version is ever changed —
+              the names are a JaCoCo implementation detail, not a documented contract.
+
+              Note also what did NOT appear: no rule fired for *.web*, because the fixture has no
+              web package. A per-package rule is only as good as the package existing, so a sprint
+              that adds a module's first web class is the sprint where that threshold starts
+              binding, not the sprint it was written.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>${jacoco.version}</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+
+                    <!--
+                      The report is not decoration and it runs before the check on purpose.
+
+                      jacoco:check only prints a number when it FAILS - a passing build says
+                      nothing about where coverage actually sits. But run-log.TEMPLATE.md requires
+                      COVERAGE_SERVICE and COVERAGE_OVERALL on every sprint, and
+                      monitor.agent.md names "coverage drifting down while verdicts stay PASS" as a
+                      legitimate trend observation. Without this execution the Monitor can only
+                      write those fields on a sprint that failed, so the one trend the archive
+                      exists to surface is invisible on exactly the sprints that look fine.
+
+                      Writes target/site/jacoco/jacoco.csv, which is the machine-readable form the
+                      Monitor should read rather than parsing build log lines.
+                    -->
+                    <execution>
+                        <id>harness-coverage-report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+
+                    <execution>
+                        <id>harness-coverage-check</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <haltOnFailure>true</haltOnFailure>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.70</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <rule>
+                                    <element>PACKAGE</element>
+                                    <includes>
+                                        <include>com.cognizant.storeops.*.service*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.80</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <rule>
+                                    <element>PACKAGE</element>
+                                    <includes>
+                                        <include>com.cognizant.storeops.*.web*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.70</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                                <rule>
+                                    <element>PACKAGE</element>
+                                    <includes>
+                                        <include>com.cognizant.storeops.shared*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.60</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+              ARCH-1..4 and the ERR-1 backstop. ArchitectureRulesTest is never excluded and never
+              skipped, because skipping tests defeats every architectural gate in the harness at
+              once — and silently, with a green build.
+
+              THIS TAKES THREE PLUGINS, NOT ONE. Measured on a fixture project, not reasoned about:
+
+                mvn verify -Pharness-gates -DskipTests=true
+                    → surefire's <skipTests>false</skipTests> wins, 10 tests run, gates enforced.
+
+                mvn verify -Pharness-gates -Dmaven.test.skip=true     (before this change)
+                    → BUILD SUCCESS, exit 0, 0 tests run, ArchUnit never loaded,
+                      jacoco:check passed having analysed nothing.
+
+              The reason is that `maven.test.skip` is not surefire's flag. It is also read by
+              maven-compiler-plugin's testCompile goal, so the test tree never compiles; surefire
+              then has nothing to run and reports success, and JaCoCo skips its check because no
+              execution-data file was produced. Pinning surefire alone closes neither.
+
+              So: the compiler's testCompile execution pins <skip>false</skip>, surefire pins both
+              its own switches, and surefire additionally sets failIfNoTests so that "zero tests
+              found" is an error rather than a pass. The last one is the backstop that does not
+              depend on knowing which property a future Maven version reads.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <phase>test-compile</phase>
+                        <goals><goal>testCompile</goal></goals>
+                        <configuration>
+                            <skip>false</skip>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <skip>false</skip>
+                    <skipTests>false</skipTests>
+                    <failIfNoTests>true</failIfNoTests>
+                    <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
+                </configuration>
+            </plugin>
+
+        </plugins>
+    </build>
+</profile>
+
+  </profiles>
+</project>

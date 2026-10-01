@@ -47,6 +47,8 @@ Store programmes and their staff membership.
 - `Project` — id, name, description, storeId, ownerId, status, createdAt
 - `ProjectMember` — projectId, userId, role
 - `ProjectRole` — `STORE_MANAGER` | `DEPARTMENT_LEAD` | `ASSOCIATE`
+- `ProjectStatus` — `OPEN` | `CLOSED`. Closing a programme publishes `ProgrammeClosedEvent`; a
+  closed programme refuses new members with `CONFLICT`.
 
 ### `staff`
 Registration, authentication, profile. **Read-only to every other module.** No other module may

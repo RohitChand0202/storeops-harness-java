@@ -152,6 +152,27 @@
                         <id>prepare-agent</id>
                         <goals><goal>prepare-agent</goal></goals>
                     </execution>
+
+                    <!--
+                      The report is not decoration and it runs before the check on purpose.
+
+                      jacoco:check only prints a number when it FAILS - a passing build says
+                      nothing about where coverage actually sits. But run-log.TEMPLATE.md requires
+                      COVERAGE_SERVICE and COVERAGE_OVERALL on every sprint, and
+                      monitor.agent.md names "coverage drifting down while verdicts stay PASS" as a
+                      legitimate trend observation. Without this execution the Monitor can only
+                      write those fields on a sprint that failed, so the one trend the archive
+                      exists to surface is invisible on exactly the sprints that look fine.
+
+                      Writes target/site/jacoco/jacoco.csv, which is the machine-readable form the
+                      Monitor should read rather than parsing build log lines.
+                    -->
+                    <execution>
+                        <id>harness-coverage-report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+
                     <execution>
                         <id>harness-coverage-check</id>
                         <phase>verify</phase>
