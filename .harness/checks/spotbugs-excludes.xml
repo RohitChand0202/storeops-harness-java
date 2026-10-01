@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SpotBugs exclusions for the StoreOps harness gates.
+
+  One exclusion, and it exists to resolve a contradiction between two gates rather than to quiet an
+  inconvenient finding.
+
+  ERR-1 is deliberately scoped to `service` and `web`: checkstyle-suppressions.xml exempts `domain`
+  and `repository`, because "no raw throws" is a rule about the error contract the API exposes, and a
+  domain entity rejecting a null id in its constructor is not an API error path. So the harness
+  explicitly permits `throw new IllegalArgumentException(...)` in a domain constructor.
+
+  SpotBugs at threshold=Medium then reports CT_CONSTRUCTOR_THROW on exactly that code: "Exception
+  thrown in class ... will leave the constructor." BUILD-1 fails, and BUILD-2 forbids the Generator
+  from adding @SuppressWarnings to make it pass. The Generator is left with no legal move — it cannot
+  write a validating entity constructor, cannot silence the finding, and no gate message explains
+  which rule it is supposed to obey. That is a contract asking for two incompatible things, which is
+  the escalation case, triggered on ordinary correct code.
+
+  Measured, not predicted: a four-line entity constructor that rejects a null id fails
+  `mvn verify -Pharness-gates` with "Total bugs: 1" and nothing else wrong.
+
+  The exclusion is narrow on purpose — this bug pattern, in domain packages only. CT_CONSTRUCTOR_THROW
+  warns about a partially-constructed object being observable through a finalizer or a leaked `this`,
+  which is a real concern for a non-final class with a finalizer and not a concern for an immutable
+  record-like entity that validates and assigns.
+
+  Everywhere else SpotBugs stays at Medium. Adding a second entry here is a change to what BUILD-1
+  means and goes past the engineering standards team, not into a feature commit — the same standard
+  checkstyle-suppressions.xml holds itself to.
+-->
+<FindBugsFilter>
+
+    <Match>
+        <Bug pattern="CT_CONSTRUCTOR_THROW"/>
+        <Or>
+            <Class name="~com\.cognizant\.storeops\.[a-z]+\.domain\..*"/>
+            <Class name="~com\.cognizant\.storeops\.shared\.domain\..*"/>
+        </Or>
+    </Match>
+
+</FindBugsFilter>

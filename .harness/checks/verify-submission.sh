@@ -33,19 +33,29 @@ done
 echo
 echo "Gate definitions (.harness/checks/)"
 for f in ArchitectureRulesTest.java checkstyle-harness.xml checkstyle-suppressions.xml \
-         checkstyle-build2-tests.xml pom-harness-gates.xml ac-gates.sh; do
+         checkstyle-build2-tests.xml spotbugs-excludes.xml pom-harness-gates.xml ac-gates.sh \
+         fixtures/gate-selftest.sh; do
   have ".harness/checks/$f" && ok ".harness/checks/$f" || bad ".harness/checks/$f missing"
 done
-if have .harness/checks/ac-gates.sh; then
-  bash -n .harness/checks/ac-gates.sh 2>/dev/null \
-    && ok "ac-gates.sh parses" || bad "ac-gates.sh has a syntax error — gate AC-2 cannot run"
-fi
+for s in ac-gates.sh fixtures/gate-selftest.sh; do
+  have ".harness/checks/$s" && { bash -n ".harness/checks/$s" 2>/dev/null \
+    && ok "$s parses" || bad "$s has a syntax error"; }
+done
+
+# Each of the three below is a defect that shipped once and produced a green build. The gate
+# self-test is the real check; these are the cheap regression guards for the specific mistakes.
 grep -q 'id="ERR-1-rawThrow"' .harness/checks/checkstyle-suppressions.xml 2>/dev/null \
   && ok "ERR-1 suppressions scope by id, not checks" \
   || bad "checkstyle-suppressions.xml scopes by 'checks' — Checkstyle matches that against the check class, so ERR-1 is unscoped"
-grep -q '<skip>false</skip>' .harness/checks/pom-harness-gates.xml 2>/dev/null \
-  && ok "surefire pins maven.test.skip" \
-  || bad "pom-harness-gates.xml does not pin <skip>false</skip> — -Dmaven.test.skip defeats every ArchUnit gate"
+grep -q 'default-testCompile' .harness/checks/pom-harness-gates.xml 2>/dev/null \
+  && ok "compiler testCompile pinned — -Dmaven.test.skip cannot skip the arch gates" \
+  || bad "pom-harness-gates.xml does not pin maven-compiler-plugin testCompile — -Dmaven.test.skip=true gives a green build with zero gates run"
+grep -q 'failIfNoTests' .harness/checks/pom-harness-gates.xml 2>/dev/null \
+  && ok "surefire failIfNoTests set — 'zero tests' is an error, not a pass" \
+  || warn "surefire does not set failIfNoTests — a run with no tests reports success"
+grep -q 'allowEmptyShould' .harness/checks/ArchitectureRulesTest.java 2>/dev/null \
+  && ok "module-scoped ArchUnit rules allow an empty subject" \
+  || bad "ArchitectureRulesTest has no allowEmptyShould — rules FAIL on a tree where their module is absent"
 
 echo
 echo "Skill files (minimum 6)"

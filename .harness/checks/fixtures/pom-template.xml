@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Template for the gate self-test project. gate-selftest.sh splices the <profile> block from
+  ../pom-harness-gates.xml in place of the PROFILE marker below and writes pom.xml.
+
+  Spliced rather than duplicated: a self-test running against a copy of the gate configuration
+  proves that the copy works, which is worth nothing. It has to run against the file the real
+  build uses.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.cognizant</groupId>
+  <artifactId>storeops-gate-selftest</artifactId>
+  <version>0.0.1-SNAPSHOT</version>
+  <name>StoreOps harness gate self-test</name>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.10.2</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.2.5</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+  </build>
+
+  <profiles>
+<!-- PROFILE -->
+  </profiles>
+</project>

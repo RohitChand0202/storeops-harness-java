@@ -1,0 +1,19 @@
+# Line endings are normalised to LF in the repository and in the working tree.
+#
+# This is not cosmetic. The harness's gate scripts run in three places with different conventions —
+# a developer's Git Bash on Windows, the Docker build in DEPLOYMENT.md, and CI — and a shell script
+# checked out with CRLF fails in the last two with `bad interpreter: /usr/bin/env bash^M`. A gate
+# that cannot start is a gate that does not run, which is the failure mode this harness exists to
+# prevent. `eol=lf` makes the checkout match the repository everywhere.
+#
+# It also removes the phantom diffs that core.autocrlf=true produces on a Windows clone, where every
+# text file reads as modified immediately after checkout. Gate AC-2 and the BUILD-2 diff scan are
+# decided from `git diff`, so a working tree that is never clean makes both of them noisy.
+* text=auto eol=lf
+
+# Binary — never touch.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jar binary
+*.zip binary

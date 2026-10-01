@@ -11,7 +11,9 @@ together rather than scattered through the build.
 | `checkstyle-suppressions.xml` | Scopes ERR-1 to service and web paths | Referenced in place |
 | `checkstyle-build2-tests.xml` | BUILD-2 test sources — disabled tests, commented-out ArchUnit rules | Referenced in place |
 | `pom-harness-gates.xml` | BUILD-1, TEST-1, and the wiring for all of the above | Paste the `<profile>` into `pom.xml`'s `<profiles>` block |
+| `spotbugs-excludes.xml` | BUILD-1 — one exclusion, resolving a conflict with ERR-1 | Referenced in place |
 | `ac-gates.sh` | AC-2, AC-1 (citation half), BUILD-2 (diff-scan half) | Run in place by the Evaluator |
+| `fixtures/` | None — a test **for** the gates | `fixtures/gate-selftest.sh` |
 | `verify-submission.sh` | None — pre-submission check on the artefact chain | Run in place |
 
 `ac-gates.sh` exists because dimension 2 was the one dimension with no automated gate behind it.
@@ -37,15 +39,23 @@ chmod +x .harness/checks/ac-gates.sh .harness/checks/verify-submission.sh
 ./mvnw -q clean verify -Pharness-gates
 ```
 
-Two things to verify once, on the first real sprint, because both fail silently rather than loudly:
+## Testing the gates
 
-1. **The per-package JaCoCo rules bind.** Drop one service class's tests and confirm the failure
-   names the package, not just the bundle. See the comment above the JaCoCo plugin in
-   `pom-harness-gates.xml` for why the include patterns are listed in two forms.
-2. **ERR-1 is scoped where the rule says it is.** A `throw new IllegalStateException` in a `domain`
-   class must *not* fail the build, and one in a `service` class must. Checkstyle matches the
-   `checks` attribute against the check class and `id` against the module id, so scoping by `checks`
-   silently matches nothing — see the note in `checkstyle-suppressions.xml`.
+```bash
+fixtures/gate-selftest.sh
+```
+
+Ten assertions, each one a gate accepting what it should accept or rejecting what it should reject.
+Run it whenever a file in this directory changes, and whenever a tool version in the profile moves.
+
+This exists because a gate that does not fire is indistinguishable from a gate that passes, and
+three defects here had shipped in exactly that state — ERR-1 scoped by `checks` instead of `id` so
+its suppressions matched nothing, `-Dmaven.test.skip=true` skipping test compilation and taking all
+nine ArchUnit rules with it, and four ArchUnit rules failing for having no classes to check. Each one
+produced a green build. `fixtures/README.md` has the measurements.
+
+Nothing in this directory is covered by `mvn verify`: it *is* the build configuration, so it cannot
+be tested by the build it configures. The self-test is the only thing standing in for that.
 
 `ArchitectureRulesTest.java` has to be copied because ArchUnit rules are JUnit tests and Surefire
 only picks up `src/test/java`. The source of truth stays here so the harness's gate definitions are

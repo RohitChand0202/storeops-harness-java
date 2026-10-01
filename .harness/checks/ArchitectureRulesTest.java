@@ -28,6 +28,23 @@ import static com.tngtech.archunit.library.Architectures.layeredArchitecture;
  * and the layer rules would fail on test code that is doing nothing wrong. Removing it makes five
  * gates fire spuriously.
  *
+ * <p><b>{@code allowEmptyShould} and {@code optionalLayer}, and why they are not a weakening.</b>
+ * ArchUnit fails a rule whose {@code that()} clause matches no classes, and reports an empty layer
+ * as a layer violation. Both defaults are wrong for a module-scoped rule here. "No class in
+ * {@code reports} writes to another module's repository" is *true* of a codebase with no
+ * {@code reports} classes, and a gate that reports FAIL on it is reporting an ArchUnit
+ * configuration state as an architecture violation. The Evaluator quotes rule output verbatim and
+ * routes a FAIL to the Generator, so the cost of that false negative is a wasted iteration against
+ * a budget of three — and the Generator cannot fix it, because nothing is broken.
+ *
+ * <p>This was measured, not assumed: on a tree with no {@code web} and no {@code repository}
+ * classes, {@code layersAreRespected} fails with "Layer 'Web' is empty" and three further rules
+ * fail with "failed to check any classes". The direction constraints are unaffected by either
+ * setting — an empty layer cannot be accessed, and a rule with no subjects has no violations.
+ * What is deliberately NOT relaxed is any rule whose {@code that()} clause is
+ * {@code resideOutsideOfPackage}: those always match, so an empty result there would mean the
+ * import itself failed, and that must stay a FAIL.
+ *
  * <p>Placement: copy to {@code src/test/java/com/cognizant/storeops/architecture/}. It lives in
  * {@code .harness/checks/} in this repository so the harness's own gate definitions are reviewable
  * in one place alongside the Checkstyle config they pair with.
@@ -124,7 +141,8 @@ class ArchitectureRulesTest {
                     .orShould().callConstructor(IllegalArgumentException.class, String.class)
                     .orShould().callConstructor(UnsupportedOperationException.class)
                     .orShould().callConstructor(UnsupportedOperationException.class, String.class)
-                    .because("ERR-1: extend shared.error.AppException — code, message, httpStatus");
+                    .because("ERR-1: extend shared.error.AppException — code, message, httpStatus")
+                    .allowEmptyShould(true);
 
     // ---------------------------------------------------------------- ARCH-3
 
@@ -138,9 +156,9 @@ class ArchitectureRulesTest {
     @ArchTest
     static final ArchRule layersAreRespected = layeredArchitecture()
             .consideringOnlyDependenciesInLayers()
-            .layer("Web").definedBy(BASE + "..web..")
-            .layer("Service").definedBy(BASE + "..service..")
-            .layer("Repository").definedBy(BASE + "..repository..")
+            .optionalLayer("Web").definedBy(BASE + "..web..")
+            .optionalLayer("Service").definedBy(BASE + "..service..")
+            .optionalLayer("Repository").definedBy(BASE + "..repository..")
             .whereLayer("Web").mayNotBeAccessedByAnyLayer()
             .whereLayer("Service").mayOnlyBeAccessedByLayers("Web", "Service")
             .whereLayer("Repository").mayOnlyBeAccessedByLayers("Service")
@@ -157,7 +175,8 @@ class ArchitectureRulesTest {
                             "org.springframework.web..",
                             "org.springframework.http..",
                             BASE + ".shared.event..")
-                    .because("ARCH-3: repositories do data access and nothing else");
+                    .because("ARCH-3: repositories do data access and nothing else")
+                    .allowEmptyShould(true);
 
     // ---------------------------------------------------------------- ARCH-4
 
@@ -176,7 +195,8 @@ class ArchitectureRulesTest {
                             BASE + ".staff.repository..",
                             BASE + ".alerts.repository..")
                     .because("ARCH-4: reports reads through service interfaces and writes only "
-                            + "to its own ReportRepository");
+                            + "to its own ReportRepository")
+                    .allowEmptyShould(true);
 
     // ---------------------------------------------------------------- staff
 
@@ -196,5 +216,6 @@ class ArchitectureRulesTest {
                             BASE + ".programmes..",
                             BASE + ".alerts..",
                             BASE + ".reports..")
-                    .because("staff sits at the bottom of the dependency graph");
+                    .because("staff sits at the bottom of the dependency graph")
+                    .allowEmptyShould(true);
 }

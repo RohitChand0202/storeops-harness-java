@@ -121,20 +121,60 @@ mattered.
 
 Then surefire. The profile pinned `<skipTests>false</skipTests>` and the comment claimed the
 architecture gates could never be skipped. `-DskipTests` is indeed neutralised by that. But
-`-Dmaven.test.skip` is a different parameter — it skips test *compilation* — and it was unpinned, so
-one flag on the command line produced a green build with nine ArchUnit rules and the coverage check
-never having run.
+`-Dmaven.test.skip` is a different parameter — it skips test *compilation* — and it was unpinned.
 
 Both of these are the same failure the harness exists to prevent, one level up: a check that reads as
-covering something and does not fire. I wrote that sentence into
-`checkstyle-build2-tests.xml` as an argument for splitting the Checkstyle configs, and then shipped
-two instances of it in the file next door.
+covering something and does not fire. I wrote that sentence into `checkstyle-build2-tests.xml` as an
+argument for splitting the Checkstyle configs, and then shipped two instances of it in the file next
+door.
 
-**The lesson, and it is not "read more carefully".** The harness's gates are the only code in this
-repository with no test. Everything they govern gets ArchUnit, JaCoCo and a review; they get my
-attention. So `.harness/checks/README.md` now carries two one-command verifications — throw
-`IllegalStateException` from a domain class and confirm the build *passes*, drop a service class's
-tests and confirm the failure names the package — to be run once on the first real sprint. That is
-weaker than a test and much better than nothing. If I extended this harness further, the next thing
-I would build is a fixture project under `.harness/checks/fixtures/` that deliberately violates each
-gate, so that "the gates work" becomes something CI asserts rather than something I believe.
+## Entry 6 — Running the gates, and what reading them had missed
+
+I had written in the entry above that the gates are the only code here with no test, called that the
+lesson, and then done the thing I had just criticised: added two manual verification notes to a
+README and moved on. So I installed a JDK and Maven and built the fixture project instead.
+
+It found two more defects and one gate conflict, none of which I would have got to by reading.
+
+**The surefire fix was wrong.** Not incomplete — wrong. I had pinned `<skip>false</skip>` on surefire
+and written a confident comment saying that closed `-Dmaven.test.skip`. Measured:
+`mvn verify -Pharness-gates -Dmaven.test.skip=true` → `BUILD SUCCESS`, exit 0, zero tests run, nine
+ArchUnit rules never loaded, `jacoco:check` passing having analysed nothing. `maven.test.skip` is
+read by `maven-compiler-plugin`'s `testCompile` as well, so the test tree never compiles; surefire
+then finds nothing and reports success, and JaCoCo skips for want of an execution-data file. Two
+vacuous passes in series. It takes three plugins to close, and a `failIfNoTests` backstop so that
+"zero tests" is an error regardless of which property a future Maven reads. I had the right
+instinct, the right mechanism, and the wrong number of plugins, and only one of those three things
+is visible without running it.
+
+**ArchUnit fails a rule that has nothing to check.** `layeredArchitecture()` reports an empty layer
+as a violation and `failOnEmptyShould` fails any rule whose `that()` clause matches no classes. On a
+tree with no `web` and no `repository` classes, four of the nine rules fail — with messages about
+ArchUnit configuration, which the Evaluator would have quoted verbatim as an architecture violation
+and routed to the Generator. An iteration burned, out of three, on code that was correct, with
+feedback the Generator cannot act on. Fixed with `optionalLayer` and `allowEmptyShould(true)` on the
+module-scoped rules, and I want the counter-argument on the record because it is not obviously wrong:
+ArchUnit's default *is* fail-closed, and fail-closed is this harness's own rule. I still think it is
+wrong here. "No `reports` class writes to another module's repository" is true of a codebase with no
+`reports` classes, and a gate whose FAIL does not correspond to anything a human would call a
+violation is a gate that trains people to ignore it.
+
+**Two gates disagreed with each other.** SpotBugs at `threshold=Medium` reports
+`CT_CONSTRUCTOR_THROW` on a domain entity that validates its arguments — the exact code ERR-1's
+suppressions deliberately permit. So `BUILD-1` failed, `BUILD-2` forbade suppressing it, and nothing
+in any skill file told the Generator which of the two rules won. That is the "contract asking for two
+incompatible things" case from the escalation template, except it was not in a contract, it was in my
+own gate configuration, and it would have fired on the first entity the Generator wrote. Neither
+file is wrong when read on its own, which is why reading them was never going to find it.
+
+**What I would take to a client from this.** The order was backwards for the whole build. I wrote
+eleven gates, reasoned carefully about what each one prevents, documented why none can be advisory —
+and ran none of them until the configuration was finished. Three of the defects produced a *green*
+build, which means the failure mode of an untested gate is not that it breaks, it is that it silently
+blesses. If I did this again the gate self-test would come second, immediately after the first gate,
+and `fixtures/gate-selftest.sh` would be in CI next to `mvn verify`. Ten assertions, one command, and
+it runs in about ninety seconds.
+
+I have left the two manual verification notes out of `.harness/checks/README.md` now. They were a
+substitute for a test, and the substitute would have been performed once, by me, and then believed
+for the rest of the harness's life.
