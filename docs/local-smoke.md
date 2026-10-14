@@ -38,6 +38,19 @@ handoverAlerts  : 1
 
 The script checks that the successful item ID matches the created activity, the failed item ID matches the missing activity, and the alert has type `SHIFT_HANDOVER`, channel `IN_APP`, and the configured incoming lead and store. These results verify one local process and one mixed-result request; they do not establish multi-instance persistence or production readiness.
 
-## Deployment evidence limit
+## Docker Desktop deployment (personal laptop)
 
-Docker was not installed in this Windows workspace. The supplied `Dockerfile` and `compose.yaml` were not executed here, and there is no container screenshot or live cloud URL. This local JAR record shows the feature responding in a running app, but it does not satisfy the case study's Docker or cloud deployment evidence requirement by itself.
+The repository was cloned onto a separate Windows laptop with Docker Desktop and its Linux engine. From the repository root, the container image was built and started with:
+
+```powershell
+docker compose up --build --wait --wait-timeout 300
+docker compose ps
+Invoke-RestMethod http://localhost:8080/actuator/health
+.\scripts\smoke.ps1
+```
+
+The captured terminal shows image `storeops-api:local` built, the `storeops-api` container healthy on port 8080, and the health endpoint returning `UP`. The smoke script reported `createdStatus: 201`, `bulkStatus: 207`, two requested updates with one success and one `NOT_FOUND` failure, and one incoming-lead handover alert.
+
+![Docker Compose healthy container and API smoke results](evidence/docker-compose-smoke.jpg)
+
+This is local Docker deployment and API evidence. It does not establish a public cloud deployment, multi-instance persistence, or production readiness.
