@@ -84,4 +84,10 @@ An unauthenticated `/api/activities` call returns `401`. `/actuator/health` is p
 
 ## Verification record
 
-The Java build and HTTP smoke results for this checkout are recorded in `docs/local-smoke.md`. The Dockerfile and Compose file are provided for a Docker-capable host. The current Windows workspace has no Docker executable, so no container start, image size, or container screenshot is claimed here.
+The Java build, local JAR test, and Docker Desktop verification are recorded in [docs/local-smoke.md](docs/local-smoke.md). Docker was unavailable on the original development host, so the repository was cloned onto a separate personal Windows laptop for local container deployment. There, `docker compose up --build --wait --wait-timeout 300` built the image and started a healthy `storeops-api` container on port 8080. The public health request returned `UP`.
+
+The PowerShell smoke script then called the running API: activity creation returned `201`, the mixed bulk handover returned `207` with one success and one `NOT_FOUND` result, and the incoming lead received one handover alert. The screenshot captures the healthy container, health request, and smoke output:
+
+![Healthy Docker Compose container and successful handover API smoke run](docs/evidence/docker-compose-smoke.jpg)
+
+This is the local Docker deployment option. No public cloud URL or multi-instance persistence is claimed.
