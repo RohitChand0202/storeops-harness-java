@@ -7,10 +7,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * Maps every error to the uniform body. An AppException keeps its own code and status; anything
@@ -51,6 +55,17 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(new ErrorResponse(
                 "VALIDATION_FAILED", "Request body is not valid", Instant.now(),
                 path(request), fields));
+    }
+
+    /** Maps malformed JSON and request parameters to a client error. */
+    @ExceptionHandler({HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class,
+            MissingServletRequestParameterException.class,
+            MissingRequestHeaderException.class})
+    public ResponseEntity<ErrorResponse> handleMalformedRequest(Exception ex, WebRequest request) {
+        return ResponseEntity.badRequest().body(new ErrorResponse(
+                "VALIDATION_FAILED", "Request syntax or parameter is invalid", Instant.now(),
+                path(request), List.of()));
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.cognizant.storeops.staff.repository;
 
+import java.util.List;
 import java.util.Optional;
 
 import com.cognizant.storeops.staff.domain.AuthToken;
@@ -15,6 +16,9 @@ public interface UserRepository {
      * @return the user, or empty
      */
     Optional<User> findById(String id);
+
+    /** Lists staff assigned to one store. */
+    List<User> findByStoreId(String storeId);
 
     /**
      * Stores a staff member.

@@ -14,6 +14,7 @@ import com.cognizant.storeops.shared.error.UnauthorizedException;
 import com.cognizant.storeops.staff.domain.AuthToken;
 import com.cognizant.storeops.staff.domain.StaffRole;
 import com.cognizant.storeops.staff.domain.User;
+import com.cognizant.storeops.staff.repository.InMemoryUserRepository;
 import com.cognizant.storeops.staff.repository.UserRepository;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -84,5 +85,54 @@ class StaffServiceImplTest {
         assertThatThrownBy(() -> service.resolveToken("old"))
                 .isInstanceOf(UnauthorizedException.class)
                 .hasMessageContaining("expired");
+    }
+
+    @Test
+    void rejectsATokenAtItsExpiryInstant() {
+        when(userRepository.findToken("old")).thenReturn(
+                Optional.of(new AuthToken("old", "user-7", NOW)));
+
+        assertThatThrownBy(() -> service.resolveToken("old"))
+                .isInstanceOf(UnauthorizedException.class);
+    }
+
+    @Test
+    void rejectsAnInactiveUserAndAnOrphanedToken() {
+        when(userRepository.findToken("tok")).thenReturn(
+                Optional.of(new AuthToken("tok", "user-7", NOW.plusSeconds(3600))));
+        when(userRepository.findById("user-7")).thenReturn(Optional.of(new User(
+                "user-7", "lead@example.com", "Lead", StaffRole.DEPARTMENT_LEAD,
+                "store-12", "region-1", false)));
+        assertThatThrownBy(() -> service.resolveToken("tok"))
+                .isInstanceOf(UnauthorizedException.class);
+
+        when(userRepository.findById("user-7")).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> service.resolveToken("tok"))
+                .isInstanceOf(UnauthorizedException.class);
+    }
+
+    @Test
+    void findsOnlyActiveDepartmentLeadsInTheRequestedStore() {
+        InMemoryUserRepository populatedRepository = new InMemoryUserRepository();
+        User activeLead = user();
+        User inactiveLead = new User("user-8", "inactive@example.com", "Inactive",
+                StaffRole.DEPARTMENT_LEAD, "store-12", "region-1", false);
+        User manager = new User("user-9", "manager@example.com", "Manager",
+                StaffRole.STORE_MANAGER, "store-12", "region-1", true);
+        User foreignLead = new User("user-10", "foreign@example.com", "Foreign Lead",
+                StaffRole.DEPARTMENT_LEAD, "store-99", "region-2", true);
+        populatedRepository.save(activeLead);
+        populatedRepository.save(inactiveLead);
+        populatedRepository.save(manager);
+        populatedRepository.save(foreignLead);
+        StaffServiceImpl populatedService = new StaffServiceImpl(populatedRepository,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(populatedService.findDepartmentLeadsForStore("store-12"))
+                .containsExactly(activeLead);
+        assertThat(populatedRepository.findById(activeLead.id())).contains(activeLead);
+        assertThat(populatedRepository.findById(inactiveLead.id())).contains(inactiveLead);
+        assertThat(populatedRepository.findById(manager.id())).contains(manager);
+        assertThat(populatedRepository.findById(foreignLead.id())).contains(foreignLead);
     }
 }

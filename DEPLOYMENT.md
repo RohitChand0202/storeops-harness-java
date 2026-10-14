@@ -1,208 +1,87 @@
-# Deployment
+# Local deployment and verification
 
-**Target:** local Docker, via `docker compose`.
+StoreOps uses in-memory repositories. The app needs Java 17; the Docker image builds the same Maven gate profile as CI and runs as a non-root user. A restart clears all activities, programmes, users, and alerts.
 
-**Why.** StoreOps uses in-memory repositories by design, so there is no database, no migration step
-and no connection string — the only runtime configuration it has is a demo auth token. A container
-is therefore the whole deployment surface, and a compose file is an honest description of it rather
-than a thin wrapper over something more complicated. The multi-stage build below also lets the image
-be built with `-Pharness-gates`, which is the property worth having: the deployment artefact and the
-harness verdict cannot disagree, because the image will not build from code that fails a hard gate.
+## Configure a demo session
 
-A cloud target is the stronger choice where secrets management and service configuration are the
-point; the last section of this file has the shortest path to one from the same Dockerfile.
+There are no default credentials. Supply a token and account details as environment variables before launching the app. The optional incoming lead account makes the handover alert visible through a second authenticated session.
 
-> STATUS: the Evidence section below is pending the demonstration run. Everything above it is
-> reproducible now.
-
----
-
-## Steps taken
-
-### 1. Dockerfile
-
-Multi-stage, so the runtime image carries no Maven and no build cache. Place at the repository root.
-
-```dockerfile
-# ---- build ----
-FROM maven:3.9-eclipse-temurin-17 AS build
-WORKDIR /build
-
-# Dependencies first so a source change does not re-download the world
-COPY pom.xml .
-RUN mvn -B -q dependency:go-offline
-
-COPY src ./src
-COPY .harness/checks ./.harness/checks
-
-# Build with the same gate profile the harness and CI use. If the harness passed, this passes.
-RUN mvn -B -q clean package -Pharness-gates
-
-# ---- runtime ----
-FROM eclipse-temurin:17-jre-alpine
-WORKDIR /app
-
-# Non-root. The container has no business running as root to serve an in-memory API.
-RUN addgroup -S storeops && adduser -S storeops -G storeops
-USER storeops
-
-COPY --from=build /build/target/*.jar app.jar
-
-EXPOSE 8080
-ENV JAVA_OPTS="-XX:MaxRAMPercentage=75"
-
-HEALTHCHECK --interval=15s --timeout=3s --start-period=30s --retries=3 \
-  CMD wget -q --spider http://localhost:8080/actuator/health || exit 1
-
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
+```powershell
+$env:STOREOPS_BOOTSTRAP_TOKEN = [guid]::NewGuid().ToString('N')
+$env:STOREOPS_BOOTSTRAP_USER_ID = 'outgoing-lead'
+$env:STOREOPS_BOOTSTRAP_EMAIL = 'outgoing@example.test'
+$env:STOREOPS_BOOTSTRAP_NAME = 'Outgoing Lead'
+$env:STOREOPS_BOOTSTRAP_ROLE = 'DEPARTMENT_LEAD'
+$env:STOREOPS_BOOTSTRAP_STORE_ID = 'store-1'
+$env:STOREOPS_BOOTSTRAP_REGION_ID = 'region-1'
+$env:STOREOPS_BOOTSTRAP_INCOMING_LEAD_TOKEN = [guid]::NewGuid().ToString('N')
+$env:STOREOPS_BOOTSTRAP_INCOMING_LEAD_USER_ID = 'incoming-lead'
+$env:STOREOPS_BOOTSTRAP_INCOMING_LEAD_EMAIL = 'incoming@example.test'
+$env:STOREOPS_BOOTSTRAP_INCOMING_LEAD_NAME = 'Incoming Lead'
 ```
 
-Building with `-Pharness-gates` is deliberate. It means the image cannot be built from code that
-fails a hard gate, so the deployment artefact and the harness verdict cannot disagree. If you would
-rather keep image builds fast, drop the profile and rely on CI — but then say so here, because it is a
-governance decision, not a build detail.
+Both demo tokens expire after 28,800 seconds by default; set `STOREOPS_BOOTSTRAP_TOKEN_TTL_SECONDS` to a positive number to change that. The incoming lead token, user ID, email, and name must be supplied together. The incoming account is a `DEPARTMENT_LEAD` in the outgoing user's store and region. Keep the tokens out of source control and shell transcripts that will be shared.
 
-### 2. Compose
+## Start
 
-```yaml
-services:
-  storeops-api:
-    build: .
-    image: storeops-api:harness-demo
-    container_name: storeops-api
-    ports:
-      - "8080:8080"
-    environment:
-      SPRING_PROFILES_ACTIVE: docker
-      STOREOPS_AUTH_DEMO_TOKEN: ${STOREOPS_AUTH_DEMO_TOKEN}
-    restart: unless-stopped
-```
+With Docker Compose installed:
 
-The demo token comes from the environment, never from the compose file. `.env` is gitignored. There
-is no database service because StoreOps uses in-memory repositories by design — do not add Postgres
-to make the deployment look more substantial.
-
-### 3. Run
-
-```bash
-echo "STOREOPS_AUTH_DEMO_TOKEN=$(openssl rand -hex 16)" > .env
+```powershell
 docker compose up --build -d
 docker compose ps
-docker compose logs -f storeops-api    # wait for "Started StoreOpsApplication"
 ```
 
-### 4. Verify the baseline
+The build stage runs `mvn -B clean verify -Pharness-gates` before producing the runtime image. The health check requests `/actuator/health`. The Compose file requires all demo variables, including the second lead, so the alert can be verified. Run `docker compose down` when finished.
 
-```bash
-curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/activities | jq
+The same app can be run without Docker after installing JDK 17:
+
+```powershell
+.\mvnw.cmd clean verify -Pharness-gates
+java -jar target/storeops-0.0.1-SNAPSHOT.jar
 ```
 
-### 5. Verify the harness-generated endpoint
+The JDK and Maven wrapper are build requirements. The packaged jar needs only a Java 17 runtime. If running without Docker, set the environment variables in the same shell before starting the jar.
 
-This is the call that matters: the endpoint the harness produced, not one of the nine base
-endpoints. A base endpoint responding proves the container starts; this proves the governed feature
-reached a running application.
+## Exercise the governed feature
 
-```bash
-curl -i -X PATCH http://localhost:8080/api/activities/bulk-status \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "updates": [
-      { "taskId": "a-1041", "targetStatus": "DONE",    "note": "restock complete" },
-      { "taskId": "a-1042", "targetStatus": "BLOCKED", "note": "pallet missing" },
-      { "taskId": "a-9999", "targetStatus": "DONE" }
-    ]
-  }'
+After `docker compose up -d`, run these calls in the same PowerShell shell so the token variables remain available. If you started the jar in the foreground, repeat the environment assignments in a second shell before making the calls. First create an activity, because the repositories start empty:
+
+```powershell
+$base = 'http://localhost:8080'
+$outgoing = @{ Authorization = "Bearer $env:STOREOPS_BOOTSTRAP_TOKEN" }
+$created = Invoke-RestMethod -Method Post -Uri "$base/api/activities" -Headers $outgoing -ContentType 'application/json' -Body '{"title":"Restock aisle 4","storeId":"store-1","priority":"HIGH","category":"RESTOCKING"}'
+$created.id
 ```
 
-Expected — `207 Multi-Status`, because one id does not exist:
+Then complete that activity and include a nonexistent ID to exercise independent item results:
 
-```json
-{
-  "requestedCount": 3,
-  "succeededCount": 2,
-  "failedCount": 1,
-  "succeeded": [
-    { "taskId": "a-1041", "previousStatus": "IN_PROGRESS", "newStatus": "DONE" },
-    { "taskId": "a-1042", "previousStatus": "TODO", "newStatus": "BLOCKED" }
-  ],
-  "failed": [
-    { "taskId": "a-9999", "reason": "NOT_FOUND" }
-  ]
-}
+```powershell
+$body = @{ updates = @(
+  @{ taskId = $created.id; targetStatus = 'DONE'; note = 'Restock complete' },
+  @{ taskId = 'missing-activity'; targetStatus = 'DONE' }
+) } | ConvertTo-Json -Depth 5
+$response = Invoke-WebRequest -Method Patch -Uri "$base/api/activities/bulk-status" -Headers $outgoing -ContentType 'application/json' -Body $body
+$response.StatusCode
+$response.Content
 ```
 
-Send the partial-failure case, not the all-success case. A `200` with everything succeeding
-demonstrates that the endpoint exists. A `207` demonstrates that the partial-failure semantics the
-sprint contract specified actually work in a running container, which is the thing the harness was
-built to govern.
+The response status should be `207`. Its body should report one success, one `NOT_FOUND` failure, and counts of two requested, one succeeded, and one failed. A request with only valid transitions returns `200`. An empty `updates` list returns `400` with a typed validation error.
 
-Also worth capturing, since it is one curl and it evidences ERR-1 end to end:
+The handover event should create one alert for the incoming lead:
 
-```bash
-curl -i -X PATCH http://localhost:8080/api/activities/bulk-status \
-  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -d '{"updates":[]}'
-# → 400, {"code":"VALIDATION_FAILED", ...} — a typed code, not a stack trace
+```powershell
+$incoming = @{ Authorization = "Bearer $env:STOREOPS_BOOTSTRAP_INCOMING_LEAD_TOKEN" }
+Invoke-RestMethod -Method Get -Uri "$base/api/alerts" -Headers $incoming | ConvertTo-Json -Depth 5
 ```
 
----
+`scripts/smoke.ps1` runs the health, create, mixed-result handover, and alert checks as one repeatable command:
 
-## Evidence
-
-> STATUS: TO COMPLETE after the demonstration run. Three things go here — the `docker compose ps`
-> output, two committed screenshots, and the image size. A screenshot referenced but not committed
-> reads as a missing artefact, so commit the images alongside this file.
-
-**Container running:**
-
-```
-[paste `docker compose ps` output here]
+```powershell
+.\scripts\smoke.ps1
 ```
 
-**Screenshot:** `docs/deployment-container.png` — the running container
-**Screenshot:** `docs/deployment-bulk-status-207.png` — the `PATCH /api/activities/bulk-status` response
+An unauthenticated `/api/activities` call returns `401`. `/actuator/health` is public. The API enforces the caller's store for activities and programmes; `/api/alerts` returns the caller's own alerts.
 
-**Image size:** `docker images storeops-api:harness-demo` → [fill in]
+## Verification record
 
----
-
-## Deploying to a cloud target instead
-
-Cloud forces real decisions about configuration and secrets that a compose file does not, which is
-the reason to prefer it. The shortest path from the Dockerfile above, with no code changes:
-
-**GCP Cloud Run**
-```bash
-gcloud artifacts repositories create storeops --repository-format=docker --location=asia-south1
-gcloud builds submit --tag asia-south1-docker.pkg.dev/$PROJECT/storeops/api:harness-demo
-gcloud run deploy storeops-api \
-  --image asia-south1-docker.pkg.dev/$PROJECT/storeops/api:harness-demo \
-  --region asia-south1 --port 8080 --allow-unauthenticated \
-  --set-secrets STOREOPS_AUTH_DEMO_TOKEN=storeops-demo-token:latest
-```
-
-**Azure Container Apps**
-```bash
-az containerapp up --name storeops-api --resource-group storeops-rg \
-  --source . --ingress external --target-port 8080
-az containerapp secret set --name storeops-api --resource-group storeops-rg \
-  --secrets demo-token=$TOKEN
-```
-
-**AWS** — ECR push plus an ECS Fargate service, or Elastic Beanstalk with a `Dockerrun` config.
-More steps than either of the above for the same result.
-
-On a cloud target, three things belong in the Evidence section above alongside the URL, because they
-are the decisions the deployment actually forced:
-
-1. **Where the token lives** — a Secret Manager or Key Vault reference, not an environment variable
-   in the service definition.
-2. **The minimum instance count, and what it costs.** Cloud Run at `min-instances=0` means a cold
-   start on the first request, which anyone hitting the live URL will see.
-3. **Whether the endpoint is public, and what that accepts.** StoreOps has demo auth and in-memory
-   data, so public is defensible for a reference codebase — but state it rather than leave it
-   inferred.
-
-The live URL and the same two curl calls go in the Evidence section above.
+The Java build and HTTP smoke results for this checkout are recorded in `docs/local-smoke.md`. The Dockerfile and Compose file are provided for a Docker-capable host. The current Windows workspace has no Docker executable, so no container start, image size, or container screenshot is claimed here.

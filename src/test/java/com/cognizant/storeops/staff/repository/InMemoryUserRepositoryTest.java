@@ -40,4 +40,16 @@ class InMemoryUserRepositoryTest {
         assertThat(profile.department()).isEqualTo("Grocery");
         assertThat(profile.phone()).isEqualTo("555");
     }
+
+    @Test
+    void listsOnlyUsersInTheRequestedStore() {
+        User inStore = new User("user-1", "one@example.com", "One", StaffRole.ASSOCIATE,
+                "store-12", "region-1", true);
+        User elsewhere = new User("user-2", "two@example.com", "Two", StaffRole.ASSOCIATE,
+                "store-99", "region-2", true);
+        repository.save(inStore);
+        repository.save(elsewhere);
+
+        assertThat(repository.findByStoreId("store-12")).containsExactly(inStore);
+    }
 }

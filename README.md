@@ -1,108 +1,51 @@
-# storeops-harness-java
+# StoreOps API and governed development harness
 
-A governed agentic development harness for the StoreOps API, built with Claude Code.
+StoreOps is a Java 17, Spring Boot REST API for retail operations. The repository also contains a four-agent development harness with Planner, Generator, Evaluator, and Monitor contracts. `CLAUDE.md` describes the intended Claude Code orchestration; `.harness/` contains the contracts, skills, and executable checks. `DESIGN_BRIEF.md` explains the architecture and gate choices.
 
-Capstone Case Study 1 — Build Track, AI-Native Tech Architect Programme.
-Stack: Java 17, Spring Boot 3.x, Maven, JUnit 5 + MockMvc, Checkstyle, SpotBugs, JaCoCo, ArchUnit.
+## Build and run
 
-## What this is
+Install JDK 17 or newer. The committed Maven wrapper downloads the pinned Maven 3.9.16 distribution on first use.
 
-StoreOps is a retail store operations REST API. This repository holds StoreOps *and* the harness that
-governs further development of it: four agents with file-only handoffs, eight skill files encoding
-StoreOps-specific architectural rules, and an eleven-gate evaluation framework that converts variable
-LLM output into a deterministic accept/reject verdict.
-
-It exists because AI coding tools without architectural guardrails drift. The client's prior
-experiment produced four specific failure modes — cross-module repository imports, raw exception
-throws, tests asserting status codes without business rules, and missing event bus integration — and
-every gate in this harness traces to one of them.
-
-## Running it
-
-```
-@planner <one-sentence feature description>
+```bash
+./mvnw clean verify -Pharness-gates
+./mvnw spring-boot:run
 ```
 
-Review `.harness/output/spec.md`, then:
+On Windows, use `mvnw.cmd` in place of `./mvnw`. The gate profile runs the tests, Checkstyle, SpotBugs, JaCoCo coverage checks, and ArchUnit rules. CI runs the same `clean verify -Pharness-gates` command. The wrapper distribution has a SHA-256 checksum in `.mvn/wrapper/maven-wrapper.properties`.
 
-```
-APPROVED
-```
+All `/api/**` calls require `Authorization: Bearer <token>`. There are no built-in credentials. For a local demo, set the `STOREOPS_BOOTSTRAP_*` environment variables described in [DEPLOYMENT.md](DEPLOYMENT.md), then start the app. `/actuator/health` remains available without a token. Data is held in memory and is lost when the process exits.
 
-The Generator/Evaluator loop then runs to completion or escalation with no further input. Routing,
-iteration bounds, and escalation are defined in `CLAUDE.md`.
+## Feature demonstration
 
-## Layout
+The governed feature is `PATCH /api/activities/bulk-status`: an outgoing shift can submit up to 200 status changes. Each item is evaluated independently; successful transitions create one audit entry each, and a successful batch publishes one `ShiftHandoverCompletedEvent`. The alerts module consumes that event through the shared event bus. The HTTP response is `200` when all items succeed and `207` when any item fails. See [DEPLOYMENT.md](DEPLOYMENT.md) for a runnable request sequence.
 
-| Path | What |
+The spec and three sprint contracts from this assisted run are archived in `.harness/reviews/`; `.harness/output/` is an ignored working directory. The spec records `AWAITING APPROVAL` because no separate human `APPROVED` message was received for the Claude Code workflow. The user's instruction to implement missing work authorized the code changes in this coordinated Codex-assisted session. See `PROMPT.md` and the integration contract for the run's actual provenance.
+
+## Repository map
+
+| Path | Purpose |
 |---|---|
-| `CLAUDE.md` | Orchestrator — entry format, routing, iteration bounds, context scoping, CI relationship |
-| `DESIGN_BRIEF.md` | Architectural intent: intent decomposition, governance, non-determinism strategy, decision log |
-| `PROMPT.md` | The feature prompt used for the demonstration run |
-| `DEPLOYMENT.md` | Docker and cloud deployment, with the verification calls |
-| `REFLECTION.md` | Post-run assessment |
-| `JOURNAL.md` | Design decisions and reversals captured during the build |
-| `.harness/agents/` | Planner, Generator, Evaluator, Monitor definitions |
-| `.harness/skills/` | Eight skill files — feedforward context read before an agent acts |
-| `.harness/checks/` | ArchUnit rules, Checkstyle config, Maven gate profile, the `AC-1`/`AC-2`/`BUILD-2` diff gate |
-| `.harness/templates/` | Handoff artefact formats |
-| `.harness/output/` | Working files during a run — gitignored |
-| `.harness/reviews/` | Archived sprint artefacts — append-only governance audit trail |
-| `src/`, `tests/` | StoreOps source and tests |
+| `src/main/java` | Activities, programmes, staff, alerts, reports, and shared API code |
+| `src/test/java` | Unit, web, integration, and architecture tests |
+| `.harness/agents/` | Planner, Generator, Evaluator, and Monitor definitions |
+| `.harness/skills/` | StoreOps architecture and evaluation context |
+| `.harness/checks/` | Gate rules and self-tests |
+| `.harness/reviews/` | Archived evidence from completed review cycles |
+| `Dockerfile`, `compose.yaml` | Local container deployment |
+| `.github/workflows/ci.yml` | Repeatable GitHub Actions build |
 
-## Setup
-
-The scaffold and the gate wiring are already in place. Needs a JDK 17+ and Maven:
+Run the gate self-tests with Git Bash on Windows or Bash elsewhere:
 
 ```bash
-mvn clean verify -Pharness-gates
+bash .harness/checks/fixtures/gate-selftest.sh
+bash .harness/checks/fixtures/ac-gates-selftest.sh
 ```
 
-Measured on the committed baseline: Checkstyle 0 violations, SpotBugs clean, 95 tests green, 9
-ArchUnit rules passing, and line coverage of 98.4% service / 100% web / 100% shared / 99.1% overall
-against thresholds of 80 / 70 / 60 / 70.
+## Current limits
 
-Run the app and drive it:
+- There is no shift roster. The handover alert listener selects an eligible active department lead in the same store other than the outgoing actor; it cannot identify the actual incoming shift lead.
+- The in-memory repositories do not persist data across restarts and do not support multiple independent app instances sharing state.
+- Regional cross-store access is not enabled because there is no authoritative store-to-region mapping.
+- An SLA sweep is not scheduled, although `SlaBreachedEvent` and its alert listener exist.
 
-```bash
-mvn spring-boot:run
-curl -s localhost:8080/api/activities
-```
-
-Test the gates themselves — ten assertions, each a gate accepting what it should accept or rejecting
-what it should reject:
-
-```bash
-.harness/checks/fixtures/gate-selftest.sh
-```
-
-See `.harness/checks/README.md` for why the gate definitions live where they do, and how the harness
-relates to the CI pipeline.
-
-## What the baseline deliberately does not do
-
-The scaffold is stub implementations, per the case study: enough structure to compile, run, pass
-every gate and be extended by a harness run. Three gaps are intentional and are the obvious places
-for a feature sprint to start:
-
-- **Auth is not wired.** `StaffService.resolveToken` exists and is tested, but no filter or argument
-  resolver calls it, so no endpoint enforces a `StaffRole` or a store scope. The scoping rules those
-  endpoints will need are already specified in `api-integration`. Consequently the two list
-  endpoints that the case study describes as "for the authenticated store" and "for the authenticated
-  user" take `storeId` and `userId` as request parameters instead.
-- **No programme-close endpoint.** `ProgrammeService.close` publishes `ProgrammeClosedEvent` and is
-  tested, but §3.6's nine base endpoints do not include a route to it, so it is reachable only from
-  code.
-- **No SLA sweep.** `SlaBreachedEvent` and its `alerts` listener exist and are tested; nothing
-  schedules the check that would raise one.
-
-The event bus is wired and demonstrable end to end without any of the above: `PATCH
-/api/activities/{id}` to `BLOCKED` publishes `TaskBlockedEvent`, the `alerts` listener consumes it,
-and `GET /api/alerts?userId=...` returns the resulting `ESCALATION` notification — with no reference
-to `alerts` anywhere under `activities/`.
-
-## Where to start reading
-
-`CLAUDE.md` for the control flow, then `.harness/skills/evaluation-criteria/SKILL.md` for the gates —
-those two carry most of the design. `DESIGN_BRIEF.md` Section D has the three decisions that shaped
-everything else, including what they assume and what would break them.
+Start with `CLAUDE.md` for the harness flow and `.harness/skills/evaluation-criteria/SKILL.md` for the gate definitions. `DESIGN_BRIEF.md` contains the architectural decisions.

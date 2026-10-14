@@ -42,7 +42,7 @@ scoring runs. Each is deterministic: same code, same tool, same answer.
 | Gate | Condition | Proof |
 |---|---|---|
 | `AC-1` | Every AC in the contract has a cited test method that exists and asserts on the AC's observables | Two parts. `.harness/checks/ac-gates.sh` proves the citation resolves — it fails on a missing AC row, a `NOT IMPLEMENTED`, a cited source file, or a method that does not exist. Then the Evaluator opens each resolved test and confirms it asserts the AC's observables. |
-| `AC-2` | No file in the diff falls outside the contract's `MODULES_TOUCHED` × `LAYERS` | `.harness/checks/ac-gates.sh` exits 0. Parses both fields from the contract header and maps every changed `src/` path to a module and layer. |
+| `AC-2` | Source changes stay inside the contract's `MODULES_TOUCHED` × `LAYERS`; other changed files are only named `.harness/output/` working artefacts | `.harness/checks/ac-gates.sh` exits 0. It verifies the project Git root and base commit, maps every changed `src/` path to a module and layer, and rejects other paths except the working artefacts. |
 
 `AC-2` is decided entirely by exit code, and `AC-1`'s countable half with it. That is deliberate:
 dimension 2 previously had no automated gate, which made the two gates protecting the link between

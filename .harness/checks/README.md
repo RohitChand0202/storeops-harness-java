@@ -13,14 +13,15 @@ together rather than scattered through the build.
 | `pom-harness-gates.xml` | BUILD-1, TEST-1, and the wiring for all of the above | Paste the `<profile>` into `pom.xml`'s `<profiles>` block |
 | `spotbugs-excludes.xml` | BUILD-1 — one exclusion, resolving a conflict with ERR-1 | Referenced in place |
 | `ac-gates.sh` | AC-2, AC-1 (citation half), BUILD-2 (diff-scan half) | Run in place by the Evaluator |
-| `fixtures/` | None — a test **for** the gates | `fixtures/gate-selftest.sh` |
+| `fixtures/` | None — tests **for** the gates | `fixtures/gate-selftest.sh`, `fixtures/ac-gates-selftest.sh` |
 | `verify-submission.sh` | None — pre-submission check on the artefact chain | Run in place |
 
 `ac-gates.sh` exists because dimension 2 was the one dimension with no automated gate behind it.
 `AC-1` and `AC-2` are the two gates that connect the verdict to the contract, and leaving both to an
 LLM assessor put the most important link in the framework on the least deterministic footing. The
 script decides what is countable — does every AC have a row, does its citation resolve to a real test
-method, is every changed file inside the declared module × layer scope, is `pom.xml` in the diff —
+method, is every changed source file inside the declared module × layer scope, is any other changed
+file outside the named `.harness/output/` working artefacts, is `pom.xml` in the diff —
 and leaves the Evaluator only the judgement that genuinely needs reading: whether an assertion maps
 onto the observable its THEN clause names.
 
@@ -43,10 +44,13 @@ chmod +x .harness/checks/ac-gates.sh .harness/checks/verify-submission.sh
 
 ```bash
 fixtures/gate-selftest.sh
+fixtures/ac-gates-selftest.sh
 ```
 
-Ten assertions, each one a gate accepting what it should accept or rejecting what it should reject.
-Run it whenever a file in this directory changes, and whenever a tool version in the profile moves.
+The Maven fixture has ten assertions for the build gates. The Git fixture checks that AC-2 and BUILD-2
+fail closed on an invalid base or parent repository, reject unrelated files, and allow declared source
+paths and working artefacts. Run both when their corresponding gate files change. Run the Maven fixture
+when a tool version in the profile moves.
 
 This exists because a gate that does not fire is indistinguishable from a gate that passes, and
 three defects here had shipped in exactly that state — ERR-1 scoped by `checks` instead of `id` so

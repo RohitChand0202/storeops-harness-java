@@ -1,5 +1,7 @@
 package com.cognizant.storeops.staff.service;
 
+import java.util.List;
+
 import com.cognizant.storeops.shared.domain.StoreOpsUser;
 import com.cognizant.storeops.staff.domain.User;
 
@@ -16,6 +18,9 @@ public interface StaffService {
      * @return the user
      */
     User findById(String id);
+
+    /** Finds active department leads for handover delivery in one store. */
+    List<User> findDepartmentLeadsForStore(String storeId);
 
     /**
      * Resolves a bearer token to the authenticated principal.

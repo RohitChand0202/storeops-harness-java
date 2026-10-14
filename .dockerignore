@@ -1,0 +1,10 @@
+.git
+.github
+.harness/output
+.harness/reviews
+target
+.env
+.idea
+.vscode
+*.iml
+*.log

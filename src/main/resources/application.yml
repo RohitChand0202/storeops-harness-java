@@ -8,6 +8,3 @@ management:
     web:
       exposure:
         include: health,info
-storeops:
-  auth:
-    demo-token: ${STOREOPS_AUTH_DEMO_TOKEN:demo-token-local-only}

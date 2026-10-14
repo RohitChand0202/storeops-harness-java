@@ -1,5 +1,6 @@
 package com.cognizant.storeops.staff.repository;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -19,6 +20,11 @@ public class InMemoryUserRepository implements UserRepository {
     @Override
     public Optional<User> findById(String id) {
         return Optional.ofNullable(users.get(id));
+    }
+
+    @Override
+    public List<User> findByStoreId(String storeId) {
+        return users.values().stream().filter(user -> user.storeId().equals(storeId)).toList();
     }
 
     @Override

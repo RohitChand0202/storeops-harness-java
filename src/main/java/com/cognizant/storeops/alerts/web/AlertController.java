@@ -3,11 +3,13 @@ package com.cognizant.storeops.alerts.web;
 import java.util.List;
 
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.cognizant.storeops.alerts.service.NotificationService;
+import com.cognizant.storeops.shared.domain.StoreOpsUser;
+import com.cognizant.storeops.shared.web.ApiAuthenticationInterceptor;
 
 /**
  * HTTP surface for alerts. This controller lives inside the alerts module, so depending on
@@ -31,11 +33,13 @@ public class AlertController {
     /**
      * Lists alerts for one recipient.
      *
-     * @param userId recipient to list for
+     * @param caller authenticated recipient
      * @return their alerts
      */
     @GetMapping
-    public List<NotificationResponse> list(@RequestParam String userId) {
-        return notificationService.listForUser(userId).stream().map(NotificationResponse::from).toList();
+    public List<NotificationResponse> list(
+            @RequestAttribute(ApiAuthenticationInterceptor.PRINCIPAL_ATTRIBUTE) StoreOpsUser caller) {
+        return notificationService.listForUser(caller.id()).stream()
+                .map(NotificationResponse::from).toList();
     }
 }

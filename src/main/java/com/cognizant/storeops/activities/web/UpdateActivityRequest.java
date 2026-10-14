@@ -13,7 +13,7 @@ import com.cognizant.storeops.activities.service.UpdateActivityCommand;
  * @param priority new priority, or null
  * @param category new category, or null
  * @param assigneeId new assignee, or null
- * @param actingUserId who is making the change
+ * @param actingUserId legacy caller field; ignored because identity comes from the bearer token
  */
 public record UpdateActivityRequest(
         TaskStatus status,
@@ -28,6 +28,6 @@ public record UpdateActivityRequest(
      * @return the command
      */
     public UpdateActivityCommand toCommand() {
-        return new UpdateActivityCommand(status, priority, category, assigneeId, actingUserId);
+        return new UpdateActivityCommand(status, priority, category, assigneeId);
     }
 }

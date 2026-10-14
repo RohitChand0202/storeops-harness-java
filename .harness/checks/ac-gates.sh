@@ -14,8 +14,9 @@
 #         The Evaluator still reads each cited test to confirm it asserts the AC's observables —
 #         that half cannot be automated. This half no longer needs to be.
 #
-#   AC-2  every changed file under src/ maps to a module in MODULES_TOUCHED and a layer in LAYERS,
-#         both parsed out of the contract header.
+#   AC-2  every changed source file maps to a module in MODULES_TOUCHED and a layer in LAYERS,
+#         both parsed out of the contract header. Non-source changes are rejected except the
+#         named working artefacts produced by the Planner, Generator and Evaluator.
 #
 #   BUILD-2  the diff does not touch pom.xml or the harness's own governance files. Lowering a
 #         JaCoCo threshold produces a *passing* build by design, so no linter can see it; this is
@@ -28,10 +29,13 @@
 #   --summary   generator-summary.md                  (optional; AC-1 is skipped without it)
 #   --base      ref to diff against, default HEAD     (use the baseline or last passing sprint)
 #
-# The diff is tracked changes against --base plus untracked new files, because a file the Generator
-# has just written is part of the sprint's diff whether or not it is staged. That means the repository
+# Run from the project root. The diff is tracked changes against --base plus untracked new files,
+# because a file the Generator has just written is part of the sprint's diff whether or not it is
+# staged. That means the repository
 # needs the `baseline: generated StoreOps scaffold` commit before AC-2 and BUILD-2 mean anything: on a
 # repository with no commits every file is untracked, so everything reads as in-scope-or-violating.
+# An invalid --base, another current directory, or a parent Git repository makes both diff gates
+# UNDETERMINED and fails the command. An empty diff is only accepted after these checks pass.
 #
 # Exit 0 only when every check it was given the inputs to decide passed. Any failure exits 1.
 #
@@ -122,26 +126,48 @@ in_set() { printf '%s\n' "$2" | grep -qx -- "$1"; }
 
 # ---------------------------------------------------------------- diff
 
-if ! git rev-parse --git-dir >/dev/null 2>&1; then
+# Git resolves paths relative to the caller's directory. Require the caller and Git repository to
+# be this project's root, or a parent repository could make a missing project baseline look valid.
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+CHANGED=""
+DIFF_READY="yes"
+if [ "$(pwd -P)" != "$PROJECT_ROOT" ]; then
+  undet "run ac-gates.sh from the project root '$PROJECT_ROOT' — AC-2 and BUILD-2 cannot be decided here"
+  DIFF_READY="no"
+elif ! GIT_TOP="$(git rev-parse --show-toplevel 2>/dev/null)"; then
   undet "not a git repository — AC-2 and BUILD-2 are diff-based and cannot be decided"
+  DIFF_READY="no"
+elif ! GIT_ROOT="$(cd "$GIT_TOP" 2>/dev/null && pwd -P)" || [ "$GIT_ROOT" != "$PROJECT_ROOT" ]; then
+  undet "Git root is not the project root '$PROJECT_ROOT' — AC-2 and BUILD-2 cannot use a parent repository"
+  DIFF_READY="no"
+elif [ -z "$BASE" ] || ! git rev-parse --verify -q --end-of-options "${BASE}^{commit}" >/dev/null 2>&1; then
+  undet "base '$BASE' does not resolve to a commit — AC-2 and BUILD-2 cannot be decided"
+  DIFF_READY="no"
+fi
+
+if [ "$DIFF_READY" = "yes" ]; then
+  # A diff against BASE includes staged and unstaged tracked changes. Include untracked files too.
+  if ! TRACKED="$(git diff --name-only --no-renames "$BASE" -- 2>&1)"; then
+    undet "git diff against '$BASE' failed — AC-2 and BUILD-2 cannot be decided: $TRACKED"
+    DIFF_READY="no"
+  elif ! UNTRACKED="$(git ls-files --others --exclude-standard 2>&1)"; then
+    undet "git ls-files failed — AC-2 and BUILD-2 cannot be decided: $UNTRACKED"
+    DIFF_READY="no"
+  else
+    CHANGED="$(printf '%s\n%s\n' "$TRACKED" "$UNTRACKED" | sed 's|\\|/|g' | grep -v '^$' | sort -u)"
+  fi
+fi
+
+if [ "$DIFF_READY" = "no" ]; then
   AC2_STATUS="FAIL"; BUILD2_STATUS="FAIL"
-  CHANGED=""
-else
-  # Tracked changes against BASE, plus untracked new files — a new file the Generator has not staged
-  # is still part of the sprint's diff, and leaving it out is how an out-of-scope file gets missed.
-  CHANGED="$(
-    {
-      git diff --name-only "$BASE" -- 2>/dev/null
-      git diff --name-only --cached "$BASE" -- 2>/dev/null
-      git ls-files --others --exclude-standard 2>/dev/null
-    } | sed 's|\\|/|g' | grep -v '^$' | sort -u
-  )"
 fi
 
 echo
 echo "AC-2 — diff scope against MODULES_TOUCHED x LAYERS"
 
-if [ -z "$CHANGED" ]; then
+if [ "$DIFF_READY" = "no" ]; then
+  note "diff unavailable"
+elif [ -z "$CHANGED" ]; then
   note "no changed files against $BASE"
 else
   while IFS= read -r f; do
@@ -150,7 +176,10 @@ else
       src/main/java/com/cognizant/storeops/*|src/test/java/com/cognizant/storeops/*) : ;;
       src/*) bad "AC-2: $f is under src/ but outside com/cognizant/storeops — not a module path"
              AC2_STATUS="FAIL"; continue ;;
-      *) continue ;;   # non-src paths are BUILD-2's business, checked below
+      .harness/output/spec.md|.harness/output/generator-summary.md|.harness/output/evaluator-feedback.md|.harness/output/escalation.md|.harness/output/sprint-[0-9]*-contract.md)
+        note "working artefact: $f"; continue ;;
+      *) bad "AC-2: $f is outside src/ and is not a declared working artefact"
+         AC2_STATUS="FAIL"; continue ;;
     esac
 
     rest="${f#src/*/java/com/cognizant/storeops/}"
@@ -169,11 +198,13 @@ else
       AC2_STATUS="FAIL"; continue
     fi
 
-    # `listener` is where coding-conventions puts an event consumer; a contract declaring the
-    # `events` layer is declaring that. `tests` covers anything under src/test.
+    # `listener` and `event` contain event consumers and producers; a contract declaring the
+    # `events` layer covers both. `tests` covers anything under src/test.
     ok_layer="no"
     in_set "$layer" "$LAYERS" && ok_layer="yes"
-    [ "$layer" = "listener" ] && { in_set events "$LAYERS" && ok_layer="yes"; }
+    case "$layer" in
+      listener|event) in_set events "$LAYERS" && ok_layer="yes" ;;
+    esac
     case "$f" in src/test/*) in_set tests "$LAYERS" && ok_layer="yes" ;; esac
 
     if [ "$ok_layer" = "no" ]; then

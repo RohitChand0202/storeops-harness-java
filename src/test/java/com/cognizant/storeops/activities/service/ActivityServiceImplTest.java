@@ -19,6 +19,8 @@ import com.cognizant.storeops.activities.domain.TaskPriority;
 import com.cognizant.storeops.activities.domain.TaskStatus;
 import com.cognizant.storeops.activities.repository.AuditEntryRepository;
 import com.cognizant.storeops.activities.repository.TaskRepository;
+import com.cognizant.storeops.shared.domain.StoreOpsUser;
+import com.cognizant.storeops.shared.error.ForbiddenException;
 import com.cognizant.storeops.shared.error.NotFoundException;
 import com.cognizant.storeops.shared.error.RuleViolationException;
 import com.cognizant.storeops.shared.event.StoreOpsEvent;
@@ -35,6 +37,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class ActivityServiceImplTest {
+
+    private static final StoreOpsUser CALLER =
+            new StoreOpsUser("user-7", "store-12", "region-1", "ASSOCIATE");
 
     private TaskRepository taskRepository;
     private AuditEntryRepository auditEntryRepository;
@@ -55,7 +60,17 @@ class ActivityServiceImplTest {
         Task task = ActivityFixtures.task("a-1", TaskStatus.TODO);
         when(taskRepository.findAll("prog-1", TaskStatus.TODO)).thenReturn(List.of(task));
 
-        assertThat(service.list("prog-1", TaskStatus.TODO)).containsExactly(task);
+        assertThat(service.list(CALLER, "prog-1", TaskStatus.TODO)).containsExactly(task);
+    }
+
+    @Test
+    void listExcludesActivitiesInOtherStores() {
+        Task local = ActivityFixtures.task("local", TaskStatus.TODO);
+        Task foreign = new Task("foreign", "Other store", "store-99", TaskStatus.TODO,
+                TaskPriority.HIGH, TaskCategory.RESTOCKING, ActivityFixtures.AT);
+        when(taskRepository.findAll(null, null)).thenReturn(List.of(local, foreign));
+
+        assertThat(service.list(CALLER, null, null)).containsExactly(local);
     }
 
     @Test
@@ -63,18 +78,28 @@ class ActivityServiceImplTest {
         Task task = ActivityFixtures.task("a-1", TaskStatus.TODO);
         when(taskRepository.findById("a-1")).thenReturn(Optional.of(task));
 
-        assertThat(service.findById("a-1")).isSameAs(task);
+        assertThat(service.findById(CALLER, "a-1")).isSameAs(task);
+    }
+
+    @Test
+    void rejectsReadingAnActivityInAnotherStore() {
+        Task foreign = new Task("foreign", "Other store", "store-99", TaskStatus.TODO,
+                TaskPriority.HIGH, TaskCategory.RESTOCKING, ActivityFixtures.AT);
+        when(taskRepository.findById("foreign")).thenReturn(Optional.of(foreign));
+
+        assertThatThrownBy(() -> service.findById(CALLER, "foreign"))
+                .isInstanceOf(ForbiddenException.class);
     }
 
     @Test
     void throwsTypedNotFoundForUnknownId() {
         when(taskRepository.findById("a-9999")).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> service.findById("a-9999"))
+        assertThatThrownBy(() -> service.findById(CALLER, "a-9999"))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("a-9999");
         assertThat(((NotFoundException) org.junit.jupiter.api.Assertions.assertThrows(
-                NotFoundException.class, () -> service.findById("a-9999"))).code())
+                NotFoundException.class, () -> service.findById(CALLER, "a-9999"))).code())
                 .isEqualTo("NOT_FOUND");
     }
 
@@ -82,7 +107,7 @@ class ActivityServiceImplTest {
     void createsActivityInTodoAndPersistsIt() {
         when(taskRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        Task created = service.create(new CreateActivityCommand("Reset bay 3", "detail", "store-12",
+        Task created = service.create(CALLER, new CreateActivityCommand("Reset bay 3", "detail", "store-12",
                 TaskPriority.MEDIUM, TaskCategory.PLANOGRAM, "prog-1", "user-7"));
 
         assertThat(created.getStatus()).isEqualTo(TaskStatus.TODO);
@@ -94,12 +119,22 @@ class ActivityServiceImplTest {
     }
 
     @Test
+    void rejectsCreatingAnActivityInAnotherStore() {
+        CreateActivityCommand foreign = new CreateActivityCommand("Other store", null, "store-99",
+                TaskPriority.HIGH, TaskCategory.RESTOCKING, null, null);
+
+        assertThatThrownBy(() -> service.create(CALLER, foreign))
+                .isInstanceOf(ForbiddenException.class);
+        verify(taskRepository, never()).save(any());
+    }
+
+    @Test
     void appliesTransitionAndWritesExactlyOneAuditEntry() {
         Task task = ActivityFixtures.task("a-1041", TaskStatus.IN_PROGRESS);
         when(taskRepository.findById("a-1041")).thenReturn(Optional.of(task));
         when(taskRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        service.update("a-1041", new UpdateActivityCommand(TaskStatus.DONE, null, null, null, "user-7"));
+        service.update(CALLER, "a-1041", new UpdateActivityCommand(TaskStatus.DONE, null, null, null));
 
         assertThat(task.getStatus()).isEqualTo(TaskStatus.DONE);
         ArgumentCaptor<AuditEntry> captor = ArgumentCaptor.forClass(AuditEntry.class);
@@ -112,16 +147,50 @@ class ActivityServiceImplTest {
     }
 
     @Test
+    void startsTodoActivityAndAuditsTheTransition() {
+        Task task = ActivityFixtures.task("a-1", TaskStatus.TODO);
+        when(taskRepository.findById("a-1")).thenReturn(Optional.of(task));
+        when(taskRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        service.update(CALLER, "a-1", new UpdateActivityCommand(
+                TaskStatus.IN_PROGRESS, null, null, null));
+
+        assertThat(task.getStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
+        ArgumentCaptor<AuditEntry> captor = ArgumentCaptor.forClass(AuditEntry.class);
+        verify(auditEntryRepository).save(captor.capture());
+        assertThat(captor.getValue().previousStatus()).isEqualTo(TaskStatus.TODO);
+        assertThat(captor.getValue().newStatus()).isEqualTo(TaskStatus.IN_PROGRESS);
+        assertThat(captor.getValue().actingUserId()).isEqualTo("user-7");
+        verify(eventBus, never()).publish(any());
+    }
+
+    @Test
     void rejectsTransitionFromDoneAndChangesNothing() {
         Task task = ActivityFixtures.task("a-1042", TaskStatus.DONE);
         when(taskRepository.findById("a-1042")).thenReturn(Optional.of(task));
 
-        assertThatThrownBy(() -> service.update("a-1042",
-                new UpdateActivityCommand(TaskStatus.BLOCKED, null, null, null, "user-7")))
+        assertThatThrownBy(() -> service.update(CALLER, "a-1042",
+                new UpdateActivityCommand(TaskStatus.BLOCKED, null, null, null)))
                 .isInstanceOf(RuleViolationException.class)
                 .hasMessageContaining("cannot move from DONE to BLOCKED");
 
         assertThat(task.getStatus()).isEqualTo(TaskStatus.DONE);
+        verify(taskRepository, never()).save(any());
+        verify(auditEntryRepository, never()).save(any());
+        verify(eventBus, never()).publish(any());
+    }
+
+    @Test
+    void rejectsUpdatingAnActivityInAnotherStoreWithoutAnAuditOrEvent() {
+        Task foreign = new Task("foreign", "Other store", "store-99", TaskStatus.TODO,
+                TaskPriority.HIGH, TaskCategory.RESTOCKING, ActivityFixtures.AT);
+        when(taskRepository.findById("foreign")).thenReturn(Optional.of(foreign));
+
+        assertThatThrownBy(() -> service.update(CALLER, "foreign",
+                new UpdateActivityCommand(TaskStatus.DONE, null, null, null)))
+                .isInstanceOf(ForbiddenException.class);
+
+        assertThat(foreign.getStatus()).isEqualTo(TaskStatus.TODO);
         verify(taskRepository, never()).save(any());
         verify(auditEntryRepository, never()).save(any());
         verify(eventBus, never()).publish(any());
@@ -133,14 +202,14 @@ class ActivityServiceImplTest {
         when(taskRepository.findById("a-1043")).thenReturn(Optional.of(task));
         when(taskRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        service.update("a-1043", new UpdateActivityCommand(TaskStatus.BLOCKED, null, null, null, "user-9"));
+        service.update(CALLER, "a-1043", new UpdateActivityCommand(TaskStatus.BLOCKED, null, null, null));
 
         ArgumentCaptor<StoreOpsEvent> captor = ArgumentCaptor.forClass(StoreOpsEvent.class);
         verify(eventBus, times(1)).publish(captor.capture());
         assertThat(captor.getValue()).isInstanceOf(TaskBlockedEvent.class);
         TaskBlockedEvent event = (TaskBlockedEvent) captor.getValue();
         assertThat(event.taskId()).isEqualTo("a-1043");
-        assertThat(event.blockedByUserId()).isEqualTo("user-9");
+        assertThat(event.blockedByUserId()).isEqualTo("user-7");
         assertThat(event.occurredAt()).isEqualTo(ActivityFixtures.AT);
         assertThat(event.eventType()).isEqualTo("TASK_BLOCKED");
     }
@@ -151,8 +220,8 @@ class ActivityServiceImplTest {
         when(taskRepository.findById("a-1")).thenReturn(Optional.of(task));
         when(taskRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        service.update("a-1", new UpdateActivityCommand(null, TaskPriority.CRITICAL,
-                TaskCategory.COMPLIANCE, "user-3", "user-7"));
+        service.update(CALLER, "a-1", new UpdateActivityCommand(null, TaskPriority.CRITICAL,
+                TaskCategory.COMPLIANCE, "user-3"));
 
         assertThat(task.getPriority()).isEqualTo(TaskPriority.CRITICAL);
         assertThat(task.getCategory()).isEqualTo(TaskCategory.COMPLIANCE);
@@ -168,7 +237,7 @@ class ActivityServiceImplTest {
         when(taskRepository.findById("a-1")).thenReturn(Optional.of(task));
         when(taskRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
-        service.update("a-1", new UpdateActivityCommand(TaskStatus.TODO, null, null, null, "user-7"));
+        service.update(CALLER, "a-1", new UpdateActivityCommand(TaskStatus.TODO, null, null, null));
 
         assertThat(task.getStatus()).isEqualTo(TaskStatus.TODO);
         verify(auditEntryRepository, never()).save(any());
@@ -178,16 +247,29 @@ class ActivityServiceImplTest {
     void deletesExistingActivity() {
         when(taskRepository.deleteById("a-1")).thenReturn(true);
 
-        service.delete("a-1");
+        when(taskRepository.findById("a-1"))
+                .thenReturn(Optional.of(ActivityFixtures.task("a-1", TaskStatus.TODO)));
+        service.delete(CALLER, "a-1");
 
         verify(taskRepository, times(1)).deleteById("a-1");
+    }
+
+    @Test
+    void rejectsDeletingAnActivityInAnotherStore() {
+        Task foreign = new Task("foreign", "Other store", "store-99", TaskStatus.TODO,
+                TaskPriority.HIGH, TaskCategory.RESTOCKING, ActivityFixtures.AT);
+        when(taskRepository.findById("foreign")).thenReturn(Optional.of(foreign));
+
+        assertThatThrownBy(() -> service.delete(CALLER, "foreign"))
+                .isInstanceOf(ForbiddenException.class);
+        verify(taskRepository, never()).deleteById("foreign");
     }
 
     @Test
     void throwsTypedNotFoundWhenDeletingUnknownId() {
         when(taskRepository.deleteById("a-9999")).thenReturn(false);
 
-        assertThatThrownBy(() -> service.delete("a-9999")).isInstanceOf(NotFoundException.class);
+        assertThatThrownBy(() -> service.delete(CALLER, "a-9999")).isInstanceOf(NotFoundException.class);
     }
 
     @ParameterizedTest
@@ -199,7 +281,7 @@ class ActivityServiceImplTest {
         "DONE,BLOCKED,false",
         "DONE,DONE,false",
         "BLOCKED,DONE,false",
-        "TODO,IN_PROGRESS,false",
+        "TODO,IN_PROGRESS,true",
         "DONE,TODO,false",
         "BLOCKED,IN_PROGRESS,false",
     })

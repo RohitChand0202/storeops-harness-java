@@ -16,7 +16,7 @@ A developer starts a run with a single line:
 @planner <feature description in one sentence>
 ```
 
-Example, and the one used for the demonstration run in `PROMPT.md`:
+Example based on the source feature statement in `PROMPT.md`:
 
 ```
 @planner Add shift handover bulk update — PATCH /api/activities/bulk-status so outgoing shift

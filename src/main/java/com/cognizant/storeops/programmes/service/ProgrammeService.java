@@ -5,6 +5,8 @@ import java.util.List;
 import com.cognizant.storeops.programmes.domain.Project;
 import com.cognizant.storeops.programmes.domain.ProjectMember;
 import com.cognizant.storeops.programmes.domain.ProjectRole;
+import com.cognizant.storeops.programmes.domain.ProjectStatus;
+import com.cognizant.storeops.shared.domain.StoreOpsUser;
 
 /** Business logic for store programmes. */
 public interface ProgrammeService {
@@ -15,7 +17,7 @@ public interface ProgrammeService {
      * @param storeId store id
      * @return its programmes
      */
-    List<Project> listForStore(String storeId);
+    List<Project> listForStore(StoreOpsUser caller, String storeId);
 
     /**
      * Finds one programme.
@@ -25,6 +27,9 @@ public interface ProgrammeService {
      */
     Project findById(String id);
 
+    /** Finds one programme only when it belongs to the caller's store. */
+    Project findForCaller(StoreOpsUser caller, String id);
+
     /**
      * Opens a programme.
      *
@@ -33,7 +38,7 @@ public interface ProgrammeService {
      * @param ownerId staff member who owns it
      * @return the created programme
      */
-    Project create(String name, String storeId, String ownerId);
+    Project create(StoreOpsUser caller, String name, String storeId, String ownerId);
 
     /**
      * Adds a staff member to a programme.
@@ -43,14 +48,18 @@ public interface ProgrammeService {
      * @param role their role in this programme
      * @return the created membership
      */
-    ProjectMember addMember(String projectId, String userId, ProjectRole role);
+    ProjectMember addMember(StoreOpsUser caller, String projectId, String userId, ProjectRole role);
+
+    /** Finds a membership only when the caller may see its programme. */
+    ProjectMember findMember(StoreOpsUser caller, String projectId, String userId);
 
     /**
      * Closes a programme and raises ProgrammeClosedEvent.
      *
      * @param projectId programme id
-     * @param closedByUserId who closed it
+     * @param caller authenticated staff member requesting closure
+     * @param targetStatus requested transition target
      * @return the closed programme
      */
-    Project close(String projectId, String closedByUserId);
+    Project close(StoreOpsUser caller, String projectId, ProjectStatus targetStatus);
 }

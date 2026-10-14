@@ -1,6 +1,7 @@
 package com.cognizant.storeops.staff.service;
 
 import java.time.Clock;
+import java.util.List;
 
 import org.springframework.stereotype.Service;
 
@@ -8,6 +9,7 @@ import com.cognizant.storeops.shared.domain.StoreOpsUser;
 import com.cognizant.storeops.shared.error.NotFoundException;
 import com.cognizant.storeops.shared.error.UnauthorizedException;
 import com.cognizant.storeops.staff.domain.AuthToken;
+import com.cognizant.storeops.staff.domain.StaffRole;
 import com.cognizant.storeops.staff.domain.User;
 import com.cognizant.storeops.staff.repository.UserRepository;
 
@@ -36,13 +38,25 @@ public class StaffServiceImpl implements StaffService {
     }
 
     @Override
+    public List<User> findDepartmentLeadsForStore(String storeId) {
+        return userRepository.findByStoreId(storeId).stream()
+                .filter(User::active)
+                .filter(user -> user.role() == StaffRole.DEPARTMENT_LEAD)
+                .toList();
+    }
+
+    @Override
     public StoreOpsUser resolveToken(String token) {
         AuthToken found = userRepository.findToken(token)
                 .orElseThrow(() -> new UnauthorizedException("UNAUTHORIZED", "Token is not recognised"));
-        if (found.expiresAt().isBefore(clock.instant())) {
+        if (!found.expiresAt().isAfter(clock.instant())) {
             throw new UnauthorizedException("UNAUTHORIZED", "Token has expired");
         }
-        User user = findById(found.userId());
+        User user = userRepository.findById(found.userId())
+                .orElseThrow(() -> new UnauthorizedException("UNAUTHORIZED", "Token is not recognised"));
+        if (!user.active()) {
+            throw new UnauthorizedException("UNAUTHORIZED", "User is inactive");
+        }
         return new StoreOpsUser(user.id(), user.storeId(), user.regionId(), user.role().name());
     }
 }
